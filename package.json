@@ -1,0 +1,44 @@
+{
+  "name": "@cloudcdn/stratos",
+  "version": "0.1.0",
+  "description": "Official command-line client for CloudCDN — health, cache purge, signed URLs, and asset catalog.",
+  "type": "module",
+  "main": "stratos.mjs",
+  "bin": {
+    "stratos": "stratos.mjs"
+  },
+  "files": [
+    "stratos.mjs",
+    "install/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "stratos": "node stratos.mjs",
+    "version": "node stratos.mjs version",
+    "health": "node stratos.mjs health"
+  },
+  "keywords": [
+    "cloudcdn",
+    "cli",
+    "cdn",
+    "purge",
+    "signed-url",
+    "image-cdn",
+    "cloudflare-pages"
+  ],
+  "author": "Sebastien Rousseau <sebastian.rousseau@gmail.com> (https://sebastienrousseau.com)",
+  "license": "MIT",
+  "homepage": "https://github.com/sebastienrousseau/stratos#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sebastienrousseau/stratos.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sebastienrousseau/stratos/issues"
+  }
+}
