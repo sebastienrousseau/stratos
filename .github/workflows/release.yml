@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: MIT
+#
+# Publishes to npm with Sigstore provenance when a v* tag lands on main.
+# Also attaches SHA256SUMS + provenance attestation to the GitHub release.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write   # required for npm provenance
+  attestations: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Run tests
+        env:
+          STRATOS_NO_KEYCHAIN: '1'
+        run: npm test
+
+      - name: Compute SHA256SUMS
+        run: |
+          sha256sum stratos.mjs install/install.sh install/install.ps1 > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: 'stratos.mjs'
+
+      - name: Publish to npm with provenance
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Attach release artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            stratos.mjs
+            install/install.sh
+            install/install.ps1
+            SHA256SUMS

@@ -7,7 +7,8 @@
 <h1 align="center">stratos</h1>
 
 <p align="center">
-  Official command-line client for <a href="https://cloudcdn.pro">CloudCDN</a> — health, cache purge, signed URLs, and asset catalog from a single Node ≥ 18 script.
+  Official command-line client for <a href="https://cloudcdn.pro">CloudCDN</a> —
+  full control plane in a single zero-dependency Node ≥ 20 script.
 </p>
 
 <p align="center">
@@ -15,65 +16,62 @@
   <a href="https://github.com/sebastienrousseau/stratos/releases"><img src="https://img.shields.io/github/v/release/sebastienrousseau/stratos?style=for-the-badge&color=fc8d62" alt="Release" /></a>
   <a href="https://www.npmjs.com/package/@cloudcdn/stratos"><img src="https://img.shields.io/npm/v/@cloudcdn/stratos.svg?style=for-the-badge&color=cb3837&logo=npm" alt="npm" /></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge" alt="MIT" /></a>
-  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%E2%89%A518-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 18+" /></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%E2%89%A520-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 20+" /></a>
 </p>
+
+---
+
+## What's new in v0.0.2
+
+- ~30 commands covering insights, zones, tokens, webhooks, storage, logs,
+  AI, image ops, pipeline, search, and the full control plane.
+- `stratos mcp serve` — Model Context Protocol stdio server so Claude Code,
+  Cursor, and any MCP host can drive CloudCDN.
+- Shell completions, config profiles, `--json`/`--quiet`/`--verbose`,
+  `--timeout`/`--retries` with full-jitter backoff, sysexits-style exit codes.
+- Errors now go to **stderr** so pipelines stay clean.
+- 43-test in-repo suite (`node --test`, zero deps). Multi-tag purge bug fixed.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full list (and the breaking changes).
 
 ---
 
 ## Contents
 
-**Getting started**
-
-- [Install](#install) — one-liner, manual, from source
-- [Quick Start](#quick-start) — health check in three lines
-- [Authentication](#authentication) — account key vs. access key
-
-**Reference**
-
-- [Commands](#commands) — `version`, `health`, `purge`, `signed`, `assets`
-- [Environment variables](#environment-variables) — `CLOUDCDN_URL`, keys, secrets
-- [Exit codes](#exit-codes) — what each non-zero exit means
-
-**Operational**
-
-- [Examples](#examples) — copy-paste recipes
-- [Integrity verification](#integrity-verification) — checking the installer
-- [Development](#development) — running tests, layout
-- [Security](#security) — supply chain, signing
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Authentication & profiles](#authentication--profiles)
+- [Commands](#commands)
+- [Output, exit codes, environment](#output-exit-codes-environment)
+- [MCP server](#mcp-server)
+- [Examples](#examples)
+- [Integrity & supply chain](#integrity--supply-chain)
+- [Development](#development)
+- [Security](#security)
 - [License](#license)
 
 ---
 
 ## Install
 
-The `stratos` CLI is a single-file Node ≥ 18 script (uses built-in
-`fetch` and `crypto.subtle`). One-line installers fetch the script
-from the CloudCDN edge, verify a pinned SHA-256, and drop a `stratos`
-shim on `PATH`.
+Stratos is a single-file Node ≥ 20 script. Three supported channels:
 
 | Channel | Install |
 |---|---|
-| macOS / Linux (one-liner) | `curl -sL https://cloudcdn.pro/dist/stratos/install.sh \| bash` |
-| Windows (PowerShell) | `irm https://cloudcdn.pro/dist/stratos/install.ps1 \| iex` |
-| npm | `npm install -g @cloudcdn/stratos` *(planned)* |
-| Manual | Download [`stratos.mjs`](https://cloudcdn.pro/dist/stratos/stratos.mjs), `chmod +x`, run `node stratos.mjs …` |
-| From source | `git clone https://github.com/sebastienrousseau/stratos && cd stratos && node stratos.mjs …` |
+| **npm** | `npm install -g @cloudcdn/stratos` |
+| **macOS / Linux** | `curl -sL https://cloudcdn.pro/dist/stratos/install.sh \| bash` |
+| **Windows (PowerShell)** | `irm https://cloudcdn.pro/dist/stratos/install.ps1 \| iex` |
+| **From source** | `git clone … && node stratos.mjs …` |
 
-The Unix installer drops the script under `$HOME/.local/lib/stratos/`
-by default with a shim at `$HOME/.local/bin/stratos`. Override with
-`STRATOS_PREFIX`:
+Both installers verify a pinned SHA-256 of the script before atomic install.
+Override the install prefix with `STRATOS_PREFIX`:
 
 ```bash
 curl -sL https://cloudcdn.pro/dist/stratos/install.sh | STRATOS_PREFIX=$HOME/bin bash
 ```
 
-The Windows installer drops to
-`%LocalAppData%\Programs\stratos\` with a `stratos.cmd` shim. Override
-with `$env:STRATOS_PREFIX`.
-
-Both installers verify a pinned SHA-256 of the script before atomic
-install. The Unix path uses `sha256sum -c --status` (or `shasum -a
-256 -c --status` on macOS); the Windows path uses `Get-FileHash`.
+`npm install -g @cloudcdn/stratos` publishes with **Sigstore-backed npm
+provenance** — verify with `npm audit signatures`.
 
 ---
 
@@ -81,147 +79,196 @@ install. The Unix path uses `sha256sum -c --status` (or `shasum -a
 
 ```bash
 $ stratos version
-stratos v0.1.0
+stratos v0.0.2
 
 $ stratos health
-{
-  "status": "ok",
-  "bindings": { "ai": true, "kv": true, "d1": true, "r2": true }
-}
+{ "status": "ok", "bindings": { "ai": true, "kv": true, "d1": true, "r2": true } }
 
-$ stratos help
-stratos v0.1.0 — CloudCDN CLI
-…
-```
+$ stratos completion zsh >> ~/.zshrc   # tab-complete subcommands
 
-Set an account key once for control-plane operations:
-
-```bash
-export CLOUDCDN_ACCOUNT_KEY="…"
-stratos purge https://cloudcdn.pro/akande/v1/logos/logo.svg
+$ export CLOUDCDN_ACCOUNT_KEY="…"
+$ stratos purge https://cloudcdn.pro/akande/v1/logos/logo.svg
+$ stratos purge --tag build-${GITHUB_SHA} --tag project-akande
+$ cat urls.txt | stratos purge -
 ```
 
 ---
 
-## Authentication
+## Authentication & profiles
 
-Stratos reads credentials from environment variables. Two keys cover
-two privilege levels:
+Three sources, highest precedence first:
 
-| Variable | Used for | Header sent |
-|---|---|---|
-| `CLOUDCDN_ACCOUNT_KEY` | Control plane: purge, configuration writes | `AccountKey` + `x-api-key` (on `/api/purge`) |
-| `CLOUDCDN_ACCESS_KEY` | Read-only: assets listing, health, insights | `AccessKey` |
-| `SIGNED_URL_SECRET` | HMAC for `signed` command (offline; no network) | n/a |
+1. **Per-command flags** — `--account-key`, `--access-key`, `--url`, `--secret`.
+2. **Environment variables** — see table below.
+3. **Profile file** — `~/.config/stratos/config.json`, selected by
+   `--profile <name>` or `STRATOS_PROFILE`.
 
-Per-command override:
+| Env var | Purpose |
+|---|---|
+| `CLOUDCDN_URL` | API base URL (default `https://cloudcdn.pro`) |
+| `CLOUDCDN_ACCOUNT_KEY` | Control plane: purge, zones, rules, tokens, webhooks |
+| `CLOUDCDN_ACCESS_KEY` | Read-only: assets, insights, search |
+| `SIGNED_URL_SECRET` | HMAC secret for `signed` (offline) |
+| `STRATOS_PROFILE` | Default profile name |
+| `CLOUDCDN_TIMEOUT` | Per-request timeout in ms (default 15000) |
+| `CLOUDCDN_RETRIES` | Max retries on 429/5xx/network (default 3) |
+| `NO_COLOR` | Disable ANSI output |
+
+Profile setup:
 
 ```bash
-stratos signed /clients/akande/private.pdf --expires 1700000000 --secret "$LOCAL_SECRET"
+stratos config set prod.url        https://cloudcdn.pro
+stratos config set prod.account_key cdnsk_xxx…
+stratos config set staging.url     https://staging.cloudcdn.example
+stratos config list
+
+# Then everywhere:
+stratos --profile prod purge --tag build-123
+STRATOS_PROFILE=staging stratos health --deep
 ```
 
-Issue and rotate keys from the [CloudCDN
-dashboard](https://cloudcdn.pro/dashboard/).
+The config file is written with mode `0600`.
 
 ---
 
 ## Commands
 
-### `stratos version`
+### Edge ops
 
-Print the CLI version and exit `0`.
-
-### `stratos health [--deep]`
-
-`GET /api/health`. `--deep` adds `?deep=1`, which exercises every
-binding (KV, D1, R2, AI) instead of returning a flat liveness check.
-
-```bash
-stratos health
-stratos health --deep
-```
-
-Exit codes: `0` on `200`, `1` on `4xx`, `2` on `5xx`.
-
-### `stratos purge`
-
-`POST /api/purge`. Requires `CLOUDCDN_ACCOUNT_KEY`. Three modes:
-
-```bash
-# By URL (1+ positional args, must start with the CDN origin)
-stratos purge https://cloudcdn.pro/akande/v1/logos/logo.svg \
-              https://cloudcdn.pro/akande/v1/logos/wordmark.svg
-
-# By Cache-Tag (--tag may repeat or be a single value)
-stratos purge --tag project-akande
-stratos purge --tag project-akande --tag type-banner
-
-# Everything (hard rate-limited at the server)
-stratos purge --everything
-```
-
-### `stratos signed <path>`
-
-Mint an HMAC-SHA256-signed URL for a private asset. Runs **offline** —
-no network call. Use `--expires <unix-seconds>` for the validity
-window and `--secret <key>` to override `SIGNED_URL_SECRET`.
-
-```bash
-stratos signed /clients/akande/private.pdf --expires $(($(date +%s) + 3600))
-# https://cloudcdn.pro/api/signed?path=%2Fclients%2Fakande%2Fprivate.pdf&expires=…&sig=…
-```
-
-### `stratos assets`
-
-`GET /api/assets`. Paginated catalog of CDN-served assets. Filters:
-
-| Flag | Maps to |
+| Command | What it does |
 |---|---|
-| `--project=<name>` | `?project=<name>` (filter by project/zone) |
-| `--format=<ext>` | `?format=<ext>` (filter by file extension) |
-| `--page=<n>` | `?page=<n>` (1-based) |
+| `version`, `-v`, `--version` | Print version |
+| `help [<topic>]`, `-h`, `--help` | Print help; per-command `--help` too |
+| `health [--deep]` | `GET /api/health` |
+| `purge <url>...` | Invalidate by URL |
+| `purge --tag <t>...` | Invalidate by Cache-Tag (repeats allowed) |
+| `purge --everything` | Wipe edge cache (hard-rate-limited) |
+| `purge --dry-run` | Preview the payload, no network call |
+| `purge -` | Read URLs from stdin (one per line) |
+| `signed <path> --expires <ts> [--secret <key>]` | Offline HMAC-SHA256 URL |
 
-```bash
-stratos assets --project=akande --format=svg
-stratos assets --page=2
-```
+### Catalog & insights
 
-### `stratos help` / `-h` / `--help`
+| Command | What it does |
+|---|---|
+| `assets [--project] [--format] [--page] [--all]` | Paginated catalog; `--all` walks every page |
+| `assets show <path>` | Single-asset metadata |
+| `insights summary [--days N] [--zone Z]` | Requests, bandwidth, cache ratio |
+| `insights top [--limit N] [--days N]` | Top requested assets |
+| `insights asset <path> [--days N]` | Per-asset traffic |
+| `insights errors [--days N]` | 4xx/5xx breakdown |
+| `insights geo [--days N]` | Country distribution |
+| `stats [--days N] [--zone Z]` | `/api/core/statistics` |
+| `analytics query [...]` | `/api/analytics` filter |
+| `audit [--action A] [--days N]` | Immutable audit trail |
 
-Print the inline help text and exit `0`.
+### Zones, rules, tokens, webhooks
+
+| Command | What it does |
+|---|---|
+| `zones list \| create <name> \| show <id> \| rm <id> --force` | Tenant zones |
+| `zones domains add <id> <hostname>` | Add a custom domain |
+| `rules get <_headers\|_redirects>` | Read the edge config file |
+| `rules set <_headers\|_redirects> -f <file>` | Write it back via Git |
+| `rules diff <_headers\|_redirects> -f <file>` | Diff local vs. edge (exit 0 / 69) |
+| `tokens list \| create --name N --scopes S,S \| rm <id>` | Scoped API tokens |
+| `webhooks list \| add --url U --events E,E \| rm <id>` | Event subscriptions |
+
+### Storage
+
+| Command | What it does |
+|---|---|
+| `storage put <local> <remote>` | Single-file upload |
+| `storage get <remote> [<local>]` | Download (stdout if no `<local>`) |
+| `storage rm <remote>` | Delete |
+| `storage ls <prefix>` | List under a prefix |
+| `storage sync <dir> <prefix>` | Recursive upload via `/api/storage/batch` (50/req) |
+
+### AI, image, media
+
+| Command | What it does |
+|---|---|
+| `ai alt \| moderate \| crop \| bg-remove <url>` | AI vision endpoints |
+| `image transform <url> [--w --h --fit --format --q --blur --sharpen]` | Resize/convert |
+| `image blurhash <url> [--size N]` | BlurHash placeholder |
+| `image lqip <url> [--size N] [--blur N]` | Tiny blurred placeholder |
+| `image auto <path>` | Format negotiation |
+| `stream <video> [--quality Q] [--segment N]` | HLS playlist or segment URL |
+
+### Pipeline & discovery
+
+| Command | What it does |
+|---|---|
+| `pipeline submit --svg <file> --name N` | Asset-scaffold from an SVG |
+| `search <query> [--limit N]` | Hybrid asset search |
+| `ask <message>` | CloudCDN AI concierge |
+| `logs tail [--level L]` | SSE-stream live logs |
+| `logs query [--days N] [--level L] [--limit N]` | Historical logs |
+
+### Meta
+
+| Command | What it does |
+|---|---|
+| `completion <bash\|zsh\|fish\|powershell>` | Emit completion script |
+| `upgrade` | Re-run the latest pinned installer |
+| `config get \| set \| list` | Profile management |
+| `login` \| `login status` \| `logout` | Store keys in the OS keychain |
+| `doctor` | Diagnose env, credentials, network |
+| `bench [-n N]` | Cold-start + N latency samples |
+| `mcp serve` | Run as an MCP server over stdio |
+
+### Global options
+
+`--json` (force JSON), `-q`/`--quiet` (suppress info), `--verbose` (trace
+requests), `--profile <name>`, `--url <url>`, `--account-key <key>`,
+`--access-key <key>`, `--timeout <ms>`, `--retries <n>`.
+
+Run `stratos <command> --help` for per-command detail.
 
 ---
 
-## Environment variables
+## Output, exit codes, environment
 
-| Variable | Purpose | Default |
-|---|---|---|
-| `CLOUDCDN_URL` | API base URL | `https://cloudcdn.pro` |
-| `CLOUDCDN_ACCOUNT_KEY` | Control-plane auth | unset |
-| `CLOUDCDN_ACCESS_KEY` | Read-only auth | unset |
-| `SIGNED_URL_SECRET` | HMAC secret for `signed` | unset |
-| `STRATOS_PREFIX` | Install-location override (installer only) | platform default |
+**Output.** Default is pretty JSON on TTY, compact JSON on pipe.
+List-shaped commands (assets, zones, tokens, …) render a table on TTY and
+JSON when piped or with `--json`. Diagnostics (`info:`, `warning:`, `error:`)
+go to **stderr**, never stdout.
 
-For staging or self-hosted CloudCDN edges:
-
-```bash
-export CLOUDCDN_URL="https://staging.cloudcdn.example"
-export CLOUDCDN_ACCESS_KEY="…"
-stratos health --deep
-```
-
----
-
-## Exit codes
+**Exit codes** (sysexits-style):
 
 | Code | Meaning |
 |---|---|
 | `0` | Success |
-| `1` | Bad input (missing flag, no positional, unknown command), or `4xx` from API |
-| `2` | Server error (`5xx` from API) or uncaught exception |
+| `64` | Usage / bad CLI args |
+| `69` | Service unavailable (4xx other than auth) |
+| `75` | Tempfail — 5xx, 429, or network after retries exhausted |
+| `77` | Permission denied (401 / 403) |
+| `78` | Config error (missing key, unreadable config file) |
+| `70` | Software error (uncaught exception) |
+| `130` | Interrupted (SIGINT) |
 
-The body of any failing API call is printed to `stdout` (JSON-pretty)
-before exit, so non-zero exits never swallow detail.
+---
+
+## MCP server
+
+Stratos can speak [Model Context Protocol](https://modelcontextprotocol.io)
+over stdio, exposing 10 CloudCDN tools (purge, assets, insights, AI, signed
+URLs, search, log query, …) to any MCP host.
+
+**Claude Code** — add to `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "cloudcdn": { "command": "stratos", "args": ["mcp", "serve"] }
+  }
+}
+```
+
+**Cursor / Continue / any MCP host** — same shape; point at `stratos mcp serve`.
+
+The server inherits env vars from the host, so `CLOUDCDN_ACCOUNT_KEY` in your
+shell is what the agent calls with.
 
 ---
 
@@ -231,69 +278,104 @@ Daily smoke test against production:
 
 ```bash
 stratos health --deep | jq '.bindings | to_entries[] | select(.value != true)'
-# (no output = all bindings healthy)
 ```
 
 CI cache invalidation after a deploy:
 
 ```bash
 export CLOUDCDN_ACCOUNT_KEY="$CLOUDCDN_PROD_KEY"
-stratos purge --tag "build-${GITHUB_SHA}"
+stratos purge --tag "build-${GITHUB_SHA}" --tag "project-akande"
 ```
 
 Short-lived signed URL for a client preview:
 
 ```bash
-EXPIRES=$(($(date +%s) + 600))   # 10 minutes
+EXPIRES=$(($(date +%s) + 600))
 stratos signed "/clients/$CLIENT/preview.pdf" --expires "$EXPIRES"
 ```
 
-List all SVG assets in a project:
+Tail live edge logs (Ctrl-C clean):
 
 ```bash
-stratos assets --project=akande --format=svg | jq '.Data[].Path'
+stratos logs tail --level error
 ```
+
+Recursive site upload with concurrency:
+
+```bash
+stratos storage sync ./dist /sites/acme --concurrency 16
+```
+
+Batch AI alt-text generation:
+
+```bash
+stratos assets --format=jpg --json | jq -r '.[].Path' \
+  | xargs -I{} -P4 stratos ai alt "https://cloudcdn.pro{}"
+```
+
+More recipes: see [`examples/`](examples/).
 
 ---
 
-## Integrity verification
+## Integrity & supply chain
 
-The published `stratos.mjs` is delivered with a pinned SHA-256 in
-both installers. To verify a manual download against the live edge:
+- **Pinned SHA-256.** Both installers verify the downloaded `stratos.mjs`
+  against a SHA-256 constant baked into the installer itself.
+- **npm provenance.** Releases publish with
+  `npm publish --provenance` — Sigstore-backed attestation. Verify with:
+
+  ```bash
+  npm audit signatures
+  ```
+
+- **Build provenance.** Each tagged release attaches a GitHub
+  `actions/attest-build-provenance` attestation for `stratos.mjs`.
+- **Signed commits.** Every commit on `main` is SSH ED25519 signed.
+- **No telemetry.** Every network call is initiated by an explicit command.
+- **Offline `signed`.** The HMAC mint runs in-process; the secret never
+  leaves the host.
+
+Manual verification:
 
 ```bash
 curl -fsSL https://cloudcdn.pro/dist/stratos/stratos.mjs -o stratos.mjs
 shasum -a 256 stratos.mjs
-# Expected (v0.1.0):
-# 98306c394345fc18b8610c0113e6ef94f071ceba47de0f07eb45a9204effaf27
+# Compare against EXPECTED_SHA in install/install.sh
 ```
-
-Source of truth: the `EXPECTED_SHA` constants in
-[`install/install.sh`](install/install.sh) and
-[`install/install.ps1`](install/install.ps1).
-
-> **Note** Hashing via stdin (`curl … | shasum`) yields a different
-> value because `curl` appends a trailing newline to stdout/pipes;
-> the installers use `-o file` / `-OutFile` which writes the bytes
-> verbatim. Verify against a file, not a pipe.
 
 ---
 
 ## Development
 
-Stratos is a single ES module — no build step, no transpiler. The
-canonical layout:
+Stratos is a single ES module with no runtime dependencies.
 
 ```
 .
-├── stratos.mjs         # the CLI (≤ 250 LOC, no dependencies)
+├── stratos.mjs              # the CLI (~1500 LoC, no deps)
 ├── install/
-│   ├── install.sh      # POSIX installer (curl + sha256sum)
-│   └── install.ps1     # Windows installer (Invoke-WebRequest + Get-FileHash)
-├── README.md
-├── CHANGELOG.md
-├── LICENSE             # MIT
+│   ├── install.sh           # POSIX installer
+│   └── install.ps1          # Windows installer
+├── test/                    # 43 tests, node --test
+│   ├── parse.test.mjs
+│   ├── router.test.mjs
+│   ├── signed.test.mjs
+│   ├── http.test.mjs        # uses in-process mock HTTP server
+│   └── mcp.test.mjs
+├── examples/                # cookbook recipes
+├── .github/workflows/
+│   ├── ci.yml               # Node 20/22/24 × {ubuntu, macos, windows}
+│   └── release.yml          # npm publish --provenance on tag
+├── README.md · CHANGELOG.md · SECURITY.md · CONTRIBUTING.md · LICENSE
 └── package.json
+```
+
+Run the suite:
+
+```bash
+npm test
+# or:
+node --test test/parse.test.mjs test/router.test.mjs test/signed.test.mjs \
+            test/http.test.mjs test/mcp.test.mjs
 ```
 
 Run locally without installing:
@@ -303,33 +385,15 @@ node stratos.mjs version
 node stratos.mjs health
 ```
 
-Tests live in the parent [`cloudcdn.pro`](https://github.com/sebastienrousseau/cloudcdn.pro)
-repo at `scripts/tests/stratos-cli.test.js` (43 tests, 100% line /
-branch / function / statement coverage on `stratos.mjs`). A stand-
-alone test harness is on the roadmap; for now any change to
-`stratos.mjs` should be PR'd back to `cloudcdn.pro` first, where CI
-gates the coverage.
-
 ---
 
 ## Security
 
-- **No runtime dependencies.** Pure Node ≥ 18 standard library
-  (`fetch`, `crypto.subtle`, `URLSearchParams`). Zero `node_modules`
-  in the install footprint.
-- **Pinned SHA-256.** Both installers verify the downloaded
-  `stratos.mjs` against a SHA-256 constant baked into the installer
-  itself; a tampered CDN response fails the check before the script
-  reaches disk.
-- **No telemetry.** Every network call is initiated by an explicit
-  command. The CLI does not phone home, not even on errors.
-- **Offline `signed` command.** The HMAC mint runs in-process
-  against `SIGNED_URL_SECRET`; the secret never leaves the host.
-- **Signed commits.** Every commit on `main` is SSH ED25519 signed.
-
-Report security issues to
+See [SECURITY.md](SECURITY.md) for the disclosure policy and supported
+versions. Report vulnerabilities privately to
 [`sebastian.rousseau@gmail.com`](mailto:sebastian.rousseau@gmail.com).
-Please do not open public issues for vulnerabilities.
+
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
