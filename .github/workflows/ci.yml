@@ -36,6 +36,9 @@ jobs:
         env:
           STRATOS_NO_KEYCHAIN: '1'
         run: npm run coverage:check
+      - name: Documentation gate (Node 22 / Ubuntu only)
+        if: matrix.node == '22' && matrix.os == 'ubuntu-latest'
+        run: npm run docs:check
 
   lint-installers:
     name: lint installers

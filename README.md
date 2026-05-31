@@ -30,7 +30,7 @@
 - Shell completions, config profiles, `--json`/`--quiet`/`--verbose`,
   `--timeout`/`--retries` with full-jitter backoff, sysexits-style exit codes.
 - Errors now go to **stderr** so pipelines stay clean.
-- 43-test in-repo suite (`node --test`, zero deps). Multi-tag purge bug fixed.
+- 244-test in-repo suite (`node --test`, zero runtime deps); **100% line / function / statement coverage**, **100% JSDoc** on every declaration.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full list (and the breaking changes).
 

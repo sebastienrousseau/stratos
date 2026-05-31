@@ -67,6 +67,9 @@ support, and a 56-test in-repo suite.
 - **Coverage** — c8 dev dependency. **100% statements / lines / functions** on
   `stratos.mjs`, branch coverage 90.1%. CI gate enforces 100/100/100/85 on the
   Node 22 / Ubuntu job; full HTML report via `npm run coverage`.
+- **Documentation** — **100% JSDoc coverage** on every top-level declaration
+  (86/86) in `stratos.mjs`. Zero-dep `scripts/check-docs.mjs` enforces the
+  gate; `npm run docs:check` runs it locally and CI gates on Node 22 / Ubuntu.
 - **`--cdn-url <url>` global flag** (renamed from the original `--url`, which
   collided with `stratos webhooks add --url`).
 - **CI matrix** — Node 20/22/24 × Ubuntu/macOS/Windows in `.github/workflows/ci.yml`.

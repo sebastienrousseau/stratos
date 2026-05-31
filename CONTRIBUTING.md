@@ -12,7 +12,10 @@ is **does it deserve to be in the only file every user runs?**
    passes ~2000 LoC and a clean seam exists.
 3. **Tests are required.** Every new command needs at least one test in
    `test/`. Use the in-process mock HTTP server for integration tests.
-4. **Errors to stderr, machine output to stdout.** Always. Pipelines depend
+4. **JSDoc on every declaration.** `npm run docs:check` enforces 100%
+   coverage on `stratos.mjs`. New functions need a one-sentence summary,
+   `@param` for each argument, and `@returns` for non-void returns.
+5. **Errors to stderr, machine output to stdout.** Always. Pipelines depend
    on this contract.
 5. **Sysexits-style exit codes.** See `EX` in `stratos.mjs`.
 6. **Conventional Commits.** `feat: …`, `fix: …`, `docs: …`, `test: …`,

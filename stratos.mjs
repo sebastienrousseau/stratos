@@ -1,13 +1,21 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: MIT
-//
-// Stratos — official CloudCDN CLI.
-//
-// Zero runtime dependencies. Single-file. Node ≥ 20 (uses fetch, crypto.subtle,
-// AbortSignal.timeout, fs/promises, readline, util.styleText fallbacks).
-//
-// Source:  https://github.com/sebastienrousseau/stratos
-// License: MIT
+
+/**
+ * @file Stratos — official CloudCDN CLI.
+ *
+ * A single-file, zero-runtime-dependency Node ≥ 20 CLI that covers the full
+ * CloudCDN control plane: cache purge, signed URLs, asset catalogue,
+ * insights, zones, tokens, webhooks, rules, storage, logs (SSE), AI vision,
+ * image transforms, pipeline, search, and an MCP stdio server.
+ *
+ * The module exposes a small public API for tests and embedders
+ * (`parseFlags`, `main`, `jsonReq`, …) but the production entry point is
+ * the script invocation guard at the bottom of the file.
+ *
+ * @see {@link https://github.com/sebastienrousseau/stratos}
+ * @license MIT
+ */
 
 import { readFile, writeFile, mkdir, stat, readdir, access } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
@@ -18,11 +26,30 @@ import { createInterface } from 'node:readline';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 
+/**
+ * Current CLI semantic version. Surfaced via `stratos version`,
+ * the `User-Agent` header on every HTTP request, and the MCP
+ * `serverInfo.version` field.
+ *
+ * @type {string}
+ */
 const VERSION = '0.0.2';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sysexits-style exit codes. Honours the conventions in `<sysexits.h>` so
+ * downstream shells and CI systems can branch on the failure mode without
+ * matching on stderr strings.
+ *
+ * @type {Readonly<{
+ *   OK: 0, USAGE: 64, DATAERR: 65, NOINPUT: 66, UNAVAILABLE: 69,
+ *   SOFTWARE: 70, CANTCREAT: 73, IOERR: 74, TEMPFAIL: 75,
+ *   NOPERM: 77, CONFIG: 78,
+ * }>}
+ */
 const EX = Object.freeze({
   OK: 0,
   USAGE: 64,
@@ -40,10 +67,39 @@ const EX = Object.freeze({
 // ─────────────────────────────────────────────────────────────────────────────
 // Styling — ANSI only when stdout is a TTY and NO_COLOR is unset.
 // ─────────────────────────────────────────────────────────────────────────────
-// STRATOS_FORCE_TTY=1 forces TTY-mode output (table renderer, colours).
-// Used by the test suite to exercise output paths inside subprocesses.
+
+/**
+ * Whether the current stdout is a colour-capable terminal.
+ *
+ * Honours `NO_COLOR` (https://no-color.org) and supports
+ * `STRATOS_FORCE_TTY=1` for tests that exercise the table/colour paths
+ * from a non-TTY subprocess.
+ *
+ * @returns {boolean} True if ANSI escapes should be emitted.
+ */
 const isTTY = () => process.env.STRATOS_FORCE_TTY === '1' || (process.stdout.isTTY && !process.env.NO_COLOR);
+
+/**
+ * Wrap a string in an ANSI SGR escape sequence when running on a TTY.
+ *
+ * @param {string} s    - Text to colourise.
+ * @param {string} code - Numeric SGR code (e.g. `'31'` for red).
+ * @returns {string} The (possibly wrapped) string.
+ */
 function paint(s, code) { return isTTY() ? `\x1b[${code}m${s}\x1b[0m` : s; }
+
+/**
+ * Pre-built ANSI styling helpers. Each accepts a string and returns it
+ * wrapped in the appropriate SGR escape when `isTTY()` is true,
+ * otherwise unchanged.
+ *
+ * @type {{
+ *   dim:   (s:string)=>string, bold:  (s:string)=>string,
+ *   red:   (s:string)=>string, green: (s:string)=>string,
+ *   yellow:(s:string)=>string, blue:  (s:string)=>string,
+ *   cyan:  (s:string)=>string,
+ * }}
+ */
 const c = {
   dim:   (s) => paint(s, '2'),
   bold:  (s) => paint(s, '1'),
@@ -57,17 +113,61 @@ const c = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Output helpers — stdout for machine output, stderr for diagnostics.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Write a string to stdout, appending a trailing newline if missing.
+ * Use this for machine output that the user may pipe to `jq` / `xargs`.
+ *
+ * @param {string} s - Text to emit.
+ * @returns {void}
+ */
 function out(s)    { process.stdout.write(s.endsWith('\n') ? s : s + '\n'); }
+
+/**
+ * Write a string to stderr, appending a trailing newline if missing.
+ * Use this for diagnostics that must not pollute piped stdout.
+ *
+ * @param {string} s - Text to emit.
+ * @returns {void}
+ */
 function diag(s)   { process.stderr.write(s.endsWith('\n') ? s : s + '\n'); }
+
+/**
+ * Emit an informational diagnostic to stderr, suppressed under `--quiet`.
+ *
+ * @param {string} m - Message body (no prefix; this function adds `info:`).
+ * @returns {void}
+ */
 function info(m)   { if (!FLAGS_GLOBAL.quiet) diag(`${c.blue('info:')}    ${m}`); }
+
+/**
+ * Emit a warning diagnostic to stderr. Always shown, regardless of
+ * `--quiet`, because warnings flag potentially unwanted behaviour.
+ *
+ * @param {string} m - Message body.
+ * @returns {void}
+ */
 function warn(m)   { diag(`${c.yellow('warning:')} ${m}`); }
+
+/**
+ * Print a fatal error to stderr and exit the process with the given code.
+ *
+ * @param {string} m              - Error message.
+ * @param {number} [code=EX.SOFTWARE] - Sysexits-style exit code.
+ * @returns {never}
+ */
 function fatal(m, code = EX.SOFTWARE) {
   diag(`${c.red('error:')}   ${m}`);
   process.exit(code);
 }
 
-// Globally observed flags so info()/warn() can honour --quiet without
-// threading the flag through every function. Mutated once in main().
+/**
+ * Mutable global flag state observed by `info()` / `warn()` / `emit()`.
+ * Set once in `applyGlobalFlags()` near the top of `main()` so we don't
+ * have to thread `--quiet` / `--verbose` / `--json` through every function.
+ *
+ * @type {{ quiet: boolean, verbose: number, json: boolean }}
+ */
 const FLAGS_GLOBAL = { quiet: false, verbose: 0, json: false };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,8 +181,13 @@ const FLAGS_GLOBAL = { quiet: false, verbose: 0, json: false };
 //   -x                    → true (single-char shortcuts: -h, -v, -q)
 //   --                    → end of flags; remainder is positional
 // ─────────────────────────────────────────────────────────────────────────────
-// Short flags. Boolean ones map char → full name; value-taking ones use an
-// object { name, value: true } so the parser knows to consume the next arg.
+/**
+ * Single-character short-flag aliases. Boolean entries map the character
+ * to its full long-name (`-h` → `help`). Object entries indicate the flag
+ * consumes the next positional value (`-n 5` → `flags.n === '5'`).
+ *
+ * @type {Object<string, string | { name: string, value: true }>}
+ */
 const SHORTCUTS = {
   h: 'help',
   v: 'version',
@@ -91,6 +196,20 @@ const SHORTCUTS = {
   f: { name: 'f', value: true },        // file path, e.g. `rules set -f ./_headers`
 };
 
+/**
+ * Parse an `argv`-shaped string array into `{ positional, flags }`.
+ *
+ * Supported forms:
+ * - `--flag`              → `true`
+ * - `--flag=value`        → `'value'`
+ * - `--flag value`        → `'value'`
+ * - `--flag a --flag b`   → `['a', 'b']` (repeats accumulate into arrays)
+ * - `-x` / `-x value`     → looked up in {@link SHORTCUTS}
+ * - `--`                  → end of flags; remainder is positional
+ *
+ * @param {string[]} args - Arguments to parse (typically `process.argv.slice(2)`).
+ * @returns {{ positional: string[], flags: Object<string, string|boolean|string[]> }}
+ */
 export function parseFlags(args) {
   const positional = [];
   const flags = {};
@@ -134,6 +253,13 @@ export function parseFlags(args) {
   return { positional, flags };
 }
 
+/**
+ * Coerce a flag value (which may be undefined, a scalar, or an array
+ * from repeated flag use) into a flat array.
+ *
+ * @param {undefined|string|boolean|Array<string|boolean>} v - Flag value.
+ * @returns {Array<string|boolean>} Always an array; empty if `v` is undefined.
+ */
 function flagList(v) { return v === undefined ? [] : Array.isArray(v) ? v : [v]; }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -147,11 +273,37 @@ function flagList(v) { return v === undefined ? [] : Array.isArray(v) ? v : [v];
 //
 // Profile is chosen via --profile <name>, $STRATOS_PROFILE, or 'default'.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * XDG-compliant config root. Defaults to `~/.config` when
+ * `XDG_CONFIG_HOME` is not set.
+ *
+ * @type {string}
+ */
 const XDG_CONFIG_HOME =
   process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+
+/**
+ * Stratos's per-user config directory.
+ * @type {string}
+ */
 const CONFIG_DIR = join(XDG_CONFIG_HOME, 'stratos');
+
+/**
+ * Absolute path to the JSON config file containing named profiles.
+ * Created with mode 0600 by {@link saveFileConfig}.
+ *
+ * @type {string}
+ */
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
+/**
+ * Read and parse the profile config file.
+ *
+ * - Returns `{ profiles: {} }` when the file does not exist (`ENOENT`).
+ * - Throws a descriptive `Error` for any other read or parse failure.
+ *
+ * @returns {Promise<{ profiles: Object<string, Object> }>}
+ */
 async function loadFileConfig() {
   try {
     const raw = await readFile(CONFIG_FILE, 'utf8');
@@ -162,14 +314,43 @@ async function loadFileConfig() {
   }
 }
 
+/**
+ * Persist the profile config file atomically with mode 0600. Creates
+ * `CONFIG_DIR` recursively if needed.
+ *
+ * @param {{ profiles: Object<string, Object> }} cfg - Config to write.
+ * @returns {Promise<void>}
+ */
 async function saveFileConfig(cfg) {
   await mkdir(CONFIG_DIR, { recursive: true });
   await writeFile(CONFIG_FILE, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
 }
 
-// Resolved-keychain cache: keychain lookups shell out, so cache per-process.
+/**
+ * Per-process cache of resolved keychain lookups. Avoids re-spawning
+ * `security` / `secret-tool` for every authenticated request.
+ *
+ * @type {Map<string, string>}
+ */
 const _kcCache = new Map();
 
+/**
+ * Resolve the effective configuration for the current command.
+ *
+ * Sources, in descending priority:
+ * 1. Per-command CLI flags (`--cdn-url`, `--account-key`, …)
+ * 2. Environment variables (`CLOUDCDN_URL`, `CLOUDCDN_ACCOUNT_KEY`, …)
+ * 3. Profile entries from `~/.config/stratos/config.json`
+ * 4. OS keychain (best-effort; suppressed by `STRATOS_NO_KEYCHAIN=1`)
+ * 5. Sensible defaults
+ *
+ * @param {Object<string, any>} [flags] - Parsed CLI flags from {@link parseFlags}.
+ * @returns {Promise<{
+ *   PROFILE: string, BASE: string,
+ *   ACCOUNT_KEY: string, ACCESS_KEY: string, SIGNED_URL_SECRET: string,
+ *   TIMEOUT_MS: number, MAX_RETRIES: number,
+ * }>}
+ */
 async function envConfig(flags = {}) {
   const profileName =
     flags.profile || process.env.STRATOS_PROFILE || 'default';
@@ -218,11 +399,29 @@ async function envConfig(flags = {}) {
 // callers can treat keychain as a "best-effort fallback" — never the only
 // source of truth.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Service name under which secrets are stored in the OS keychain. Used
+ * consistently across macOS Keychain, libsecret, and Windows Credential
+ * Manager so the same key entries are discoverable from each platform.
+ *
+ * @type {string}
+ */
 const KC_SERVICE = 'stratos';
 
 /* c8 ignore start -- shells out to OS-specific binaries; not deterministically
    reachable from a portable test suite. Behaviour is exercised manually
    on each platform. */
+
+/**
+ * Spawn a child process, collect its stdout/stderr, and resolve to a
+ * `{ code, stdout, stderr }` record. Never rejects; child-spawn errors
+ * resolve with `code = -1`.
+ *
+ * @param {string}   cmd     - Executable name or path.
+ * @param {string[]} args    - Argument vector.
+ * @param {string}   [input] - Optional stdin payload.
+ * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
+ */
 function execCapture(cmd, args, input) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -235,6 +434,16 @@ function execCapture(cmd, args, input) {
   });
 }
 
+/**
+ * Read a secret from the OS keychain.
+ *
+ * Best-effort: missing entries, missing keychain binaries, and locked
+ * keychains all resolve to the empty string rather than throwing, so
+ * callers can treat keychain as a last-resort fallback.
+ *
+ * @param {string} account - Key name (e.g. `'account_key'`).
+ * @returns {Promise<string>} The stored value or `''` if unavailable.
+ */
 async function keychainGet(account) {
   if (_kcCache.has(account)) return _kcCache.get(account);
   let value = '';
@@ -263,6 +472,15 @@ async function keychainGet(account) {
   return value;
 }
 
+/**
+ * Store (or update) a secret in the OS keychain.
+ *
+ * @param {string} account - Key name (e.g. `'account_key'`).
+ * @param {string} value   - Secret material.
+ * @throws {Error} If the keychain binary returns non-zero or the platform
+ *                 is unsupported.
+ * @returns {Promise<void>}
+ */
 async function keychainSet(account, value) {
   switch (platform()) {
     case 'darwin': {
@@ -289,6 +507,12 @@ async function keychainSet(account, value) {
   }
 }
 
+/**
+ * Remove a secret from the OS keychain. Missing entries are not an error.
+ *
+ * @param {string} account - Key name (e.g. `'account_key'`).
+ * @returns {Promise<void>}
+ */
 async function keychainDel(account) {
   switch (platform()) {
     case 'darwin':
@@ -312,6 +536,26 @@ async function keychainDel(account) {
 // HTTP layer — fetch with timeout, retry with full-jitter exponential backoff,
 // auth-header policy (least privilege), structured errors.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Perform an HTTP request to the CloudCDN API and parse a JSON response.
+ *
+ * Adds least-privilege auth headers (`AccessKey` for `'read'` role,
+ * `AccountKey + x-api-key` for `'control'`), applies a per-request abort
+ * timeout, and retries 429/5xx/network failures with full-jitter
+ * exponential backoff. Never throws on HTTP status — returns
+ * `{ ok, status, body, headers }` so callers can decide how to react.
+ *
+ * @param {string} path - Path-only URL (joined onto `cfg.BASE`), e.g. `'/api/health'`.
+ * @param {RequestInit & { flags?: Object }} [init] - Standard `fetch` init,
+ *        plus `flags` so per-request CLI overrides reach `envConfig`.
+ * @param {{ role?: 'read'|'control', noRetry?: boolean }} [opts] - Behavioural
+ *        knobs. `role` selects the auth header policy; `noRetry` disables retries.
+ * @returns {Promise<{ ok: boolean, status: number, body: any, headers: Headers }>}
+ * @throws {Error} `{ exitCode: EX.CONFIG }` when role requires a key that is
+ *                 not configured, or `{ exitCode: EX.TEMPFAIL }` when retries
+ *                 are exhausted.
+ */
 async function jsonReq(path, init = {}, opts = {}) {
   const cfg = await envConfig(init.flags || {});
   const base = cfg.BASE.replace(/\/$/, '');
@@ -364,8 +608,26 @@ async function jsonReq(path, init = {}, opts = {}) {
   throw httpErr(`request failed after ${maxAttempts} attempts: ${lastErr ? lastErr.message : 'unknown'}`, EX.TEMPFAIL);
 }
 
+/**
+ * Build an `Error` carrying a sysexits-style exit code so callers can
+ * `throw` it and have the top-level catch translate it into a clean
+ * `process.exit`.
+ *
+ * @param {string} msg  - Human-readable error message.
+ * @param {number} code - One of {@link EX}.
+ * @returns {Error & { exitCode: number }}
+ */
 function httpErr(msg, code) { const e = new Error(msg); e.exitCode = code; return e; }
 
+/**
+ * Emit a JSON body to stdout, pretty-printed on TTY and compact on a pipe.
+ * Honours `FLAGS_GLOBAL.json` for forced JSON output regardless of TTY.
+ *
+ * @param {any}    body         - Anything `JSON.stringify` will accept.
+ * @param {number} [status=200] - Reserved for future use (status-aware
+ *                                framing); currently unused.
+ * @returns {void}
+ */
 function emit(body, status = 200) {
   if (FLAGS_GLOBAL.json || !isTTY()) {
     out(JSON.stringify(body, null, isTTY() ? 2 : 0));
@@ -374,11 +636,30 @@ function emit(body, status = 200) {
   }
 }
 
+/**
+ * Print a non-2xx response body to **stderr** so the user can still read
+ * the diagnostic but `… | jq …` pipelines stay clean.
+ *
+ * @param {string|any} body   - Raw body from the failing request.
+ * @param {number}     status - HTTP status code (reserved for future framing).
+ * @returns {void}
+ */
 function emitFailure(body, status) {
   const text = typeof body === 'string' ? body : JSON.stringify(body, null, 2);
   diag(text);
 }
 
+/**
+ * Map an HTTP status code to a sysexits-style exit code.
+ *
+ * - `401` / `403` → `EX.NOPERM`
+ * - `429` → `EX.TEMPFAIL`
+ * - `5xx` → `EX.TEMPFAIL`
+ * - anything else (≥400) → `EX.UNAVAILABLE`
+ *
+ * @param {number} status - HTTP status code.
+ * @returns {number} A `EX.*` value.
+ */
 function exitForStatus(status) {
   if (status === 401 || status === 403) return EX.NOPERM;
   if (status === 429) return EX.TEMPFAIL;
@@ -389,6 +670,17 @@ function exitForStatus(status) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Table renderer — minimal, dependency-free.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Render an aligned table to stdout. Used by list-shaped commands when
+ * stdout is a TTY and `--json` is not set.
+ *
+ * @param {Array<Object>} rows    - Row objects.
+ * @param {Array<{ header: string, key?: string, get?: (row: Object) => any }>}
+ *        columns                  - Column descriptors: each row's cell is
+ *        `row[key]` unless a `get` callback is supplied.
+ * @returns {void}
+ */
 function renderTable(rows, columns) {
   if (!rows || rows.length === 0) {
     diag(c.dim('(no rows)'));
@@ -408,6 +700,16 @@ function renderTable(rows, columns) {
   for (const row of data) out(fmt(row));
 }
 
+/**
+ * Emit a list of records, choosing between {@link renderTable} (TTY) and
+ * JSON (pipe or `--json`).
+ *
+ * @param {Array<Object>} rows    - Row objects to emit.
+ * @param {Array<{ header: string, key?: string, get?: (row: Object) => any }>}
+ *        columns                  - Column descriptors used only by the
+ *        table renderer; ignored when emitting JSON.
+ * @returns {void}
+ */
 function emitList(rows, columns) {
   if (FLAGS_GLOBAL.json || !isTTY()) {
     out(JSON.stringify(rows, null, isTTY() ? 2 : 0));
@@ -419,6 +721,13 @@ function emitList(rows, columns) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Stdin helpers.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Read the entirety of stdin and return it as an array of trimmed,
+ * non-empty lines. Returns an empty array when stdin is a TTY.
+ *
+ * @returns {Promise<string[]>}
+ */
 async function readStdinLines() {
   if (process.stdin.isTTY) return [];
   const chunks = [];
@@ -430,10 +739,21 @@ async function readStdinLines() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Commands — version, help, completion, upgrade, config.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `stratos version` — print the CLI version and exit zero.
+ * @returns {void}
+ */
 function cmdVersion() {
   out(`stratos v${VERSION}`);
 }
 
+/**
+ * The full root help text printed by `stratos help` and on bare invocation.
+ * Pre-formatted with ANSI styling helpers (no-ops on non-TTY stdout).
+ *
+ * @type {string}
+ */
 const HELP_ROOT = `${c.bold('stratos')} v${VERSION} — CloudCDN CLI
 
 ${c.bold('Usage:')} stratos <command> [<subcommand>] [options]
@@ -526,6 +846,12 @@ ${c.bold('Exit codes')}
 Docs: https://github.com/sebastienrousseau/stratos
 `;
 
+/**
+ * Per-command help text shown by `stratos help <topic>` and
+ * `stratos <cmd> --help`. Missing topics fall through to a usage error.
+ *
+ * @type {Object<string, string>}
+ */
 const HELP_BY_COMMAND = {
   version: 'stratos version\n  Print the CLI version and exit 0.\n',
   health:  'stratos health [--deep]\n  GET /api/health (add ?deep=1 with --deep).\n  Exit: 0 ok, 75 5xx, 69 4xx.\n',
@@ -604,6 +930,12 @@ const HELP_BY_COMMAND = {
     'stratos config set <profile>.<key> <value>\n',
 };
 
+/**
+ * `stratos help [<topic>]` — print the root help or a topic-specific block.
+ *
+ * @param {string[]} rest - Positional args after `help`; `rest[0]` is the topic.
+ * @returns {void}
+ */
 function cmdHelp(rest) {
   const topic = rest[0];
   if (!topic) { out(HELP_ROOT); return; }
@@ -613,6 +945,15 @@ function cmdHelp(rest) {
   process.exit(EX.USAGE);
 }
 
+/**
+ * `stratos completion <shell>` — emit a shell-completion script on stdout.
+ *
+ * Supported shells: `bash`, `zsh`, `fish`, `powershell`. Each produces a
+ * script the user can `eval` / `source` from their shell rc.
+ *
+ * @param {string[]} rest - `rest[0]` is the shell name.
+ * @returns {void}
+ */
 function cmdCompletion(rest) {
   const shell = rest[0];
   if (!shell) fatal('completion needs a shell name (bash|zsh|fish|powershell).', EX.USAGE);
@@ -669,6 +1010,12 @@ Register-ArgumentCompleter -Native -CommandName stratos -ScriptBlock {
   }
 }
 
+/**
+ * `stratos upgrade` — print the one-liner needed to fetch the newest
+ * pinned release. Does not run the installer directly.
+ *
+ * @returns {Promise<void>}
+ */
 async function cmdUpgrade() {
   const url = (process.env.CLOUDCDN_URL || 'https://cloudcdn.pro').replace(/\/$/, '');
   info(`Re-running installer from ${url}/dist/stratos/install.sh`);
@@ -681,6 +1028,14 @@ async function cmdUpgrade() {
   }
 }
 
+/**
+ * `stratos config get | set | list` — manage profile entries in
+ * `~/.config/stratos/config.json`.
+ *
+ * @param {string[]} rest  - Positional args after `config`.
+ * @param {Object}   flags - Parsed CLI flags (unused; reserved).
+ * @returns {Promise<void>}
+ */
 async function cmdConfig(rest, flags) {
   const action = rest[0];
   const cfg = await loadFileConfig();
@@ -719,6 +1074,13 @@ async function cmdConfig(rest, flags) {
 // Login — prompt for keys, store in OS keychain.
 // ─────────────────────────────────────────────────────────────────────────────
 /* c8 ignore start -- interactive TTY-only readline; covered by manual QA */
+/**
+ * Read a single line from stdin with echo suppressed. Used by
+ * `stratos login` to prompt for keys interactively.
+ *
+ * @param {string} prompt - Prompt text written to stderr before reading.
+ * @returns {Promise<string>} The entered value (may be empty).
+ */
 async function promptHidden(prompt) {
   process.stderr.write(prompt);
   const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
@@ -744,6 +1106,17 @@ async function promptHidden(prompt) {
 }
 /* c8 ignore stop */
 
+/**
+ * `stratos login [set|status|logout]` — manage credentials stored in
+ * the OS keychain. Without a subcommand, runs the interactive `set` flow.
+ *
+ * Non-interactive callers can pass `--account-key=…`, `--access-key=…`,
+ * and/or `--signed-secret=…` to skip the prompts.
+ *
+ * @param {string[]} positional - Positional args after `login`.
+ * @param {Object}   flags      - Parsed CLI flags.
+ * @returns {Promise<void>}
+ */
 async function cmdLogin(positional, flags) {
   const action = positional[0] || 'set';
   if (action === 'status') return loginStatus(flags);
@@ -782,6 +1155,13 @@ async function cmdLogin(positional, flags) {
   /* c8 ignore stop */
 }
 
+/**
+ * Human-readable name of the current platform's secret store. Used in
+ * status output and informational messages.
+ *
+ * @returns {string} One of `'macOS Keychain'`, `'libsecret (GNOME Keyring / KWallet)'`,
+ *                   `'Windows Credential Manager'`, or `'OS keychain'`.
+ */
 function platformKeychainName() {
   switch (platform()) {
     case 'darwin': return 'macOS Keychain';
@@ -792,6 +1172,13 @@ function platformKeychainName() {
   }
 }
 
+/**
+ * `stratos login status` — render the resolved configuration with all
+ * secret values masked. Never prints the raw key material.
+ *
+ * @param {Object} flags - Parsed CLI flags (forwarded to `envConfig`).
+ * @returns {Promise<void>}
+ */
 async function loginStatus(flags) {
   const cfg = await envConfig(flags);
   const rows = [
@@ -809,12 +1196,27 @@ async function loginStatus(flags) {
   ]);
 }
 
+/**
+ * Mask a secret for display.
+ *
+ * @param {string} k - Raw secret material.
+ * @returns {string} A dim `(unset)` placeholder, `***` for very short
+ *                   secrets, or a `prefix…suffix` excerpt that hides the
+ *                   middle of the key.
+ */
 function maskKey(k) {
   if (!k) return c.dim('(unset)');
   if (k.length <= 8) return c.dim('***');
   return c.dim(k.slice(0, 6) + '…' + k.slice(-2));
 }
 
+/**
+ * `stratos logout` (and the `login logout` subcommand) — remove every
+ * Stratos key from the OS keychain and clear the in-process cache.
+ *
+ * @param {Object} flags - Parsed CLI flags (unused; reserved).
+ * @returns {Promise<void>}
+ */
 async function loginLogout(flags) {
   /* c8 ignore start -- Windows-only safety message */
   if (platform() === 'win32') {
@@ -836,6 +1238,16 @@ async function loginLogout(flags) {
 // if all green or with informational warnings; non-zero only when something
 // is definitely broken.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * `stratos doctor` — environment + reachability diagnostic. Validates
+ * Node version, config file readability, OS keychain availability,
+ * resolved credentials (masked), and a live `/api/health` round-trip.
+ *
+ * Exits zero on all-green, `EX.UNAVAILABLE` on any failed check.
+ *
+ * @param {Object} flags - Parsed CLI flags (`--json`, `--profile`, …).
+ * @returns {Promise<void>}
+ */
 async function cmdDoctor(flags) {
   const checks = [];
   const check = (name, ok, detail = '') => checks.push({ name, ok, detail });
@@ -906,6 +1318,13 @@ async function cmdDoctor(flags) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Bench — measure cold-start + a few request-path latencies.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * `stratos bench [-n N]` — record a cold-start timing and N
+ * `/api/health` latency samples, then emit min/p50/p95/max.
+ *
+ * @param {Object} flags - Parsed CLI flags (`-n`, `--iterations`, `--json`).
+ * @returns {Promise<void>}
+ */
 async function cmdBench(flags) {
   const cfg = await envConfig(flags);
   const n = Number(flags.n || flags.iterations || 5);
@@ -959,6 +1378,13 @@ async function cmdBench(flags) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Health, purge, signed, assets — existing commands, hardened.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * `stratos health [--deep]` — GET `/api/health` (or `?deep=1`) and emit
+ * the JSON response.
+ *
+ * @param {Object} flags - Parsed CLI flags.
+ * @returns {Promise<void>}
+ */
 async function cmdHealth(flags) {
   const deep = flags.deep ? '?deep=1' : '';
   const { ok, status, body } = await jsonReq('/api/health' + deep, { flags });
@@ -966,6 +1392,15 @@ async function cmdHealth(flags) {
   emit(body, status);
 }
 
+/**
+ * `stratos purge` — invalidate cache by URL list, by `--tag`, or with
+ * `--everything`. `--dry-run` returns the would-be payload without
+ * touching the network. Accepts URLs on stdin via a `-` positional.
+ *
+ * @param {string[]} positional - URL list or `-` to read stdin.
+ * @param {Object}   flags      - Parsed CLI flags.
+ * @returns {Promise<void>}
+ */
 export async function cmdPurge(positional, flags) {
   let urls = positional.slice();
   // Read stdin if positional contains '-' or if --stdin passed.
@@ -997,6 +1432,15 @@ export async function cmdPurge(positional, flags) {
   emit(body, status);
 }
 
+/**
+ * `stratos signed <path> --expires <unix-sec>` — mint an HMAC-SHA256
+ * signed CDN URL **offline** (no network). The signature is over a
+ * length-prefixed canonical form so paths containing `|` cannot collide.
+ *
+ * @param {string[]} positional - `positional[0]` is the asset path.
+ * @param {Object}   flags      - `--expires`, optional `--secret`.
+ * @returns {Promise<void>}
+ */
 export async function cmdSigned(positional, flags) {
   const cfg = await envConfig(flags);
   if (positional.length === 0) fatal('signed needs a path argument.', EX.USAGE);
@@ -1022,6 +1466,15 @@ export async function cmdSigned(positional, flags) {
   out(url);
 }
 
+/**
+ * `stratos assets` — list the CDN asset catalogue, or `assets show <path>`
+ * for single-asset metadata. With `--all`, walks every page up to a
+ * safety cap of 1000.
+ *
+ * @param {string[]} positional - `['show', '<path>']` or empty.
+ * @param {Object}   flags      - `--project`, `--format`, `--page`, `--all`, `--json`.
+ * @returns {Promise<void>}
+ */
 async function cmdAssets(positional, flags) {
   if (positional[0] === 'show') {
     const path = positional[1];
@@ -1089,18 +1542,43 @@ async function cmdAssets(positional, flags) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Insights, stats, analytics, audit.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Convenience wrapper around {@link jsonReq} for GET requests that should
+ * surface non-2xx as a process-exit. Returns the parsed body on success.
+ *
+ * @param {string} path  - Request path (joined onto the API base).
+ * @param {Object} flags - Parsed CLI flags (forwarded to `envConfig`).
+ * @param {'read'|'control'} [role='read'] - Auth-header policy.
+ * @returns {Promise<any>}
+ */
 async function getJson(path, flags, role = 'read') {
   const { ok, status, body } = await jsonReq(path, { flags }, { role });
   if (!ok) { emitFailure(body, status); process.exit(exitForStatus(status)); }
   return body;
 }
 
+/**
+ * Validate and return a `--days` flag as a number.
+ *
+ * @param {Object} flags    - Parsed CLI flags.
+ * @param {number} [max=90] - Inclusive upper bound.
+ * @returns {number} The validated day count (defaults to 7).
+ * @throws Exits with `EX.USAGE` when the value is missing the valid range.
+ */
 function daysParam(flags, max = 90) {
   const d = Number(flags.days || 7);
   if (!Number.isFinite(d) || d < 1 || d > max) fatal(`--days must be 1..${max}`, EX.USAGE);
   return d;
 }
 
+/**
+ * `stratos insights {summary|top|asset|errors|geo}` — read-side
+ * analytics over the configurable `--days` window.
+ *
+ * @param {string[]} positional - Subcommand + optional args.
+ * @param {Object}   flags      - `--days`, `--limit`, `--zone`, `--json`.
+ * @returns {Promise<void>}
+ */
 async function cmdInsights(positional, flags) {
   const sub = positional[0];
   switch (sub) {
@@ -1153,12 +1631,26 @@ async function cmdInsights(positional, flags) {
   }
 }
 
+/**
+ * `stratos stats` — control-plane aggregate statistics endpoint.
+ *
+ * @param {Object} flags - `--days`, `--zone`, `--json`.
+ * @returns {Promise<void>}
+ */
 async function cmdStats(flags) {
   const params = new URLSearchParams({ days: String(daysParam(flags)) });
   if (flags.zone) params.set('zone', flags.zone);
   emit(await getJson('/api/core/statistics?' + params, flags, 'control'));
 }
 
+/**
+ * `stratos analytics query` — filter the raw analytics stream by
+ * `--days`, `--path`, `--bytes`, `--country`, `--cache` status.
+ *
+ * @param {string[]} positional - Subcommand (`query` is the only one).
+ * @param {Object}   flags      - Filter flags + `--json`.
+ * @returns {Promise<void>}
+ */
 async function cmdAnalytics(positional, flags) {
   const sub = positional[0] || 'query';
   if (sub !== 'query') fatal('analytics query [options]', EX.USAGE);
@@ -1169,6 +1661,12 @@ async function cmdAnalytics(positional, flags) {
   emit(await getJson('/api/analytics?' + params, flags));
 }
 
+/**
+ * `stratos audit` — immutable audit log query.
+ *
+ * @param {Object} flags - `--days` (1..7), `--action`, `--limit`, `--json`.
+ * @returns {Promise<void>}
+ */
 async function cmdAudit(flags) {
   const days = Number(flags.days || 7);
   if (!Number.isFinite(days) || days < 1 || days > 7) fatal('--days must be 1..7', EX.USAGE);
@@ -1188,6 +1686,14 @@ async function cmdAudit(flags) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Zones.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * `stratos zones {list|create|show|rm|domains add}` — multi-tenant
+ * zone management.
+ *
+ * @param {string[]} positional - Subcommand + args.
+ * @param {Object}   flags      - `--force` (for `rm`), `--json`.
+ * @returns {Promise<void>}
+ */
 async function cmdZones(positional, flags) {
   const sub = positional[0];
   switch (sub) {
@@ -1259,6 +1765,14 @@ async function cmdZones(positional, flags) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Rules — _headers / _redirects.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * `stratos rules {get|set|diff}` — manage `_headers` / `_redirects`
+ * edge config files. `diff` exits non-zero on drift (git-style).
+ *
+ * @param {string[]} positional - Subcommand + filename + optional local path.
+ * @param {Object}   flags      - `-f`, `--file`.
+ * @returns {Promise<void>}
+ */
 async function cmdRules(positional, flags) {
   const sub = positional[0];
   if (sub !== 'get' && sub !== 'set' && sub !== 'diff') {
@@ -1321,6 +1835,18 @@ async function cmdRules(positional, flags) {
 
 // Tiny LCS-based line diff. Sufficient for the two ~hundred-line text
 // files (_headers / _redirects) that this is used against.
+/**
+ * Compute a minimal line-level diff between two strings using a classic
+ * LCS-based algorithm. Sufficient for the short text files
+ * (`_headers`, `_redirects`) this is used against.
+ *
+ * @param {string} a - "Before" content (typically remote).
+ * @param {string} b - "After" content (typically local).
+ * @returns {{
+ *   lines: Array<{ kind: ' '|'+'|'-', text: string }>,
+ *   added: number, removed: number, context: number, changes: number,
+ * }}
+ */
 function diffLines(a, b) {
   const A = a.split('\n');
   const B = b.split('\n');
@@ -1349,6 +1875,14 @@ function diffLines(a, b) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Tokens.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * `stratos tokens {list|create|rm}` — scoped API tokens. Created tokens
+ * are shown once and then never again.
+ *
+ * @param {string[]} positional - Subcommand + optional id.
+ * @param {Object}   flags      - `--name`, `--scopes`, `--expires-in`, `--json`.
+ * @returns {Promise<void>}
+ */
 async function cmdTokens(positional, flags) {
   const sub = positional[0] || 'list';
   switch (sub) {
@@ -1399,6 +1933,13 @@ async function cmdTokens(positional, flags) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Webhooks.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * `stratos webhooks {list|add|rm}` — event subscriptions.
+ *
+ * @param {string[]} positional - Subcommand + optional id.
+ * @param {Object}   flags      - `--url`, `--events`, `--secret`, `--json`.
+ * @returns {Promise<void>}
+ */
 async function cmdWebhooks(positional, flags) {
   const sub = positional[0] || 'list';
   switch (sub) {
@@ -1447,6 +1988,14 @@ async function cmdWebhooks(positional, flags) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Storage — single-file CRUD and recursive sync.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * `stratos storage {put|get|rm|ls|sync}` — Bunny.net-style file CRUD
+ * and a parallel batch-sync against the `/api/storage/batch` endpoint.
+ *
+ * @param {string[]} positional - Subcommand + args.
+ * @param {Object}   flags      - `--concurrency`, `--dry-run`, `--json`.
+ * @returns {Promise<void>}
+ */
 async function cmdStorage(positional, flags) {
   const sub = positional[0];
   switch (sub) {
@@ -1460,6 +2009,14 @@ async function cmdStorage(positional, flags) {
   }
 }
 
+/**
+ * Upload a single local file to a remote storage path via `PUT`.
+ *
+ * @param {string} local  - Local file path.
+ * @param {string} remote - Remote path (slash-separated).
+ * @param {Object} flags  - Parsed CLI flags.
+ * @returns {Promise<void>}
+ */
 async function storagePut(local, remote, flags) {
   if (!local || !remote) fatal('storage put <local> <remote>', EX.USAGE);
   const data = await readFile(local);
@@ -1471,6 +2028,15 @@ async function storagePut(local, remote, flags) {
   emit(body);
 }
 
+/**
+ * Download a single remote file. Writes to `local` if provided,
+ * otherwise streams the raw bytes to stdout.
+ *
+ * @param {string} remote - Remote path.
+ * @param {string} [local] - Optional local destination.
+ * @param {Object} flags  - Parsed CLI flags.
+ * @returns {Promise<void>}
+ */
 async function storageGet(remote, local, flags) {
   if (!remote) fatal('storage get <remote> [<local>]', EX.USAGE);
   const cfg = await envConfig(flags);
@@ -1489,6 +2055,13 @@ async function storageGet(remote, local, flags) {
   }
 }
 
+/**
+ * Delete a single remote file.
+ *
+ * @param {string} remote - Remote path.
+ * @param {Object} flags  - Parsed CLI flags.
+ * @returns {Promise<void>}
+ */
 async function storageRm(remote, flags) {
   if (!remote) fatal('storage rm <remote>', EX.USAGE);
   const { ok, status, body } = await jsonReq('/api/storage/' + encodeRemotePath(remote), {
@@ -1498,6 +2071,13 @@ async function storageRm(remote, flags) {
   info(`removed ${remote}`);
 }
 
+/**
+ * List remote files under `prefix`.
+ *
+ * @param {string} prefix - Remote prefix (may be empty for root).
+ * @param {Object} flags  - Parsed CLI flags.
+ * @returns {Promise<void>}
+ */
 async function storageLs(prefix, flags) {
   const body = await getJson('/api/storage/' + encodeRemotePath(prefix), flags, 'read');
   if (Array.isArray(body)) {
@@ -1511,6 +2091,15 @@ async function storageLs(prefix, flags) {
   }
 }
 
+/**
+ * Recursively upload a local directory tree to a remote prefix using
+ * the `/api/storage/batch` endpoint (50 files / call).
+ *
+ * @param {string} localDir     - Local source directory.
+ * @param {string} remotePrefix - Remote destination prefix.
+ * @param {Object} flags        - `--concurrency`, `--dry-run`.
+ * @returns {Promise<void>}
+ */
 async function storageSync(localDir, remotePrefix, flags) {
   if (!localDir || !remotePrefix) fatal('storage sync <local-dir> <remote-prefix>', EX.USAGE);
   const conc = Number(flags.concurrency || 8);
@@ -1544,10 +2133,23 @@ async function storageSync(localDir, remotePrefix, flags) {
   info('sync complete');
 }
 
+/**
+ * URL-encode each segment of a slash-separated remote path while
+ * preserving the slashes themselves.
+ *
+ * @param {string} p - Remote path.
+ * @returns {string} Encoded path.
+ */
 function encodeRemotePath(p) {
   return p.split('/').map(encodeURIComponent).join('/');
 }
 
+/**
+ * Recursively walk a directory and return absolute paths to every file.
+ *
+ * @param {string} dir - Directory to walk.
+ * @returns {Promise<string[]>} Absolute file paths.
+ */
 async function walk(dir) {
   const ents = await readdir(dir, { withFileTypes: true });
   const out = [];
@@ -1559,6 +2161,14 @@ async function walk(dir) {
   return out;
 }
 
+/**
+ * Split an array into chunks of at most `n` elements (in original order).
+ *
+ * @template T
+ * @param {T[]}    arr - Input array.
+ * @param {number} n   - Maximum chunk size.
+ * @returns {T[][]}
+ */
 function chunk(arr, n) {
   const out = [];
   for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
@@ -1568,6 +2178,14 @@ function chunk(arr, n) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Logs — historical query + SSE tail.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * `stratos logs {tail|query}` — SSE-stream live logs or query historical
+ * records.
+ *
+ * @param {string[]} positional - Subcommand.
+ * @param {Object}   flags      - `--level`, `--days`, `--limit`, `--json`.
+ * @returns {Promise<void>}
+ */
 async function cmdLogs(positional, flags) {
   const sub = positional[0] || 'query';
   if (sub === 'tail') return logsTail(flags);
@@ -1587,6 +2205,13 @@ async function cmdLogs(positional, flags) {
   fatal('logs <tail|query>', EX.USAGE);
 }
 
+/**
+ * Open a long-lived SSE connection to `/api/logs?tail=true` and pretty-
+ * print each event as it arrives. Exits cleanly on `SIGINT` with code 130.
+ *
+ * @param {Object} flags - `--level` (optional filter).
+ * @returns {Promise<void>}
+ */
 async function logsTail(flags) {
   const cfg = await envConfig(flags);
   const params = new URLSearchParams({ tail: 'true' });
@@ -1620,6 +2245,13 @@ async function logsTail(flags) {
   }
 }
 
+/**
+ * Pretty-print one log record to stdout with level-aware colouring.
+ *
+ * @param {{ level?: string, timestamp?: string, message?: string }} rec
+ *        - Parsed log entry.
+ * @returns {void}
+ */
 function printLogLine(rec) {
   const lvl = (rec.level || 'info').toLowerCase();
   const colour = lvl === 'error' ? c.red : lvl === 'warn' ? c.yellow : lvl === 'debug' ? c.dim : c.cyan;
@@ -1630,6 +2262,14 @@ function printLogLine(rec) {
 // ─────────────────────────────────────────────────────────────────────────────
 // AI, image, stream, pipeline, search, ask, passkey.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * `stratos ai {alt|moderate|crop|bg-remove} <url>` — AI vision
+ * endpoints. The image URL is forwarded as a query parameter.
+ *
+ * @param {string[]} positional - `[subcommand, url]`.
+ * @param {Object}   flags      - Parsed CLI flags.
+ * @returns {Promise<void>}
+ */
 async function cmdAI(positional, flags) {
   const sub = positional[0];
   const url = positional[1];
@@ -1645,6 +2285,15 @@ async function cmdAI(positional, flags) {
   emit(await getJson(`${endpoint}?url=${encodeURIComponent(url)}`, flags));
 }
 
+/**
+ * `stratos image {transform|blurhash|lqip|auto}` — image-processing
+ * helpers. `transform` builds a `/api/transform` URL; the others hit
+ * their respective endpoints and emit the JSON response.
+ *
+ * @param {string[]} positional - `[subcommand, urlOrPath]`.
+ * @param {Object}   flags      - Subcommand-specific options.
+ * @returns {Promise<void>}
+ */
 async function cmdImage(positional, flags) {
   const sub = positional[0];
   const url = positional[1];
@@ -1686,6 +2335,13 @@ async function cmdImage(positional, flags) {
   }
 }
 
+/**
+ * `stratos stream <video>` — emit an HLS playlist or segment URL.
+ *
+ * @param {string[]} positional - `[videoName]`.
+ * @param {Object}   flags      - `--quality`, `--segment`.
+ * @returns {Promise<void>}
+ */
 async function cmdStream(positional, flags) {
   const video = positional[0];
   if (!video) fatal('stream <video> [--quality Q] [--segment N]', EX.USAGE);
@@ -1696,6 +2352,14 @@ async function cmdStream(positional, flags) {
   out(`${cfg.BASE.replace(/\/$/, '')}/api/stream?${params}`);
 }
 
+/**
+ * `stratos pipeline submit --svg <file> --name <name>` — submit an SVG
+ * for server-side asset-scaffolding (favicons, icons, banners).
+ *
+ * @param {string[]} positional - Subcommand.
+ * @param {Object}   flags      - `--svg`, `--name`, `--mode`, generation toggles.
+ * @returns {Promise<void>}
+ */
 async function cmdPipeline(positional, flags) {
   const sub = positional[0] || 'submit';
   if (sub !== 'submit') fatal('pipeline submit ...', EX.USAGE);
@@ -1719,6 +2383,14 @@ async function cmdPipeline(positional, flags) {
   emit(body);
 }
 
+/**
+ * `stratos search <query>` — hybrid vector + fuzzy search over the
+ * asset catalogue.
+ *
+ * @param {string[]} positional - `[query]`.
+ * @param {Object}   flags      - `--limit`, `--json`.
+ * @returns {Promise<void>}
+ */
 async function cmdSearch(positional, flags) {
   const q = positional[0];
   if (!q) fatal('search <query>', EX.USAGE);
@@ -1733,6 +2405,14 @@ async function cmdSearch(positional, flags) {
   ]);
 }
 
+/**
+ * `stratos ask <message…>` — CloudCDN AI concierge. POSTs the joined
+ * message to `/api/chat` and prints the `reply` field.
+ *
+ * @param {string[]} positional - Tokens of the user's question.
+ * @param {Object}   flags      - Parsed CLI flags.
+ * @returns {Promise<void>}
+ */
 async function cmdAsk(positional, flags) {
   const message = positional.join(' ');
   if (!message) fatal('ask <message>', EX.USAGE);
@@ -1747,6 +2427,14 @@ async function cmdAsk(positional, flags) {
   else emit(body);
 }
 
+/**
+ * `stratos passkey {register|login}` — placeholder for WebAuthn flows
+ * that require a browser ceremony. Prints the dashboard URL and exits
+ * `EX.UNAVAILABLE`.
+ *
+ * @param {string[]} positional - Subcommand (`register` or `login`).
+ * @returns {Promise<void>}
+ */
 async function cmdPasskey(positional /*, flags */) {
   const sub = positional[0];
   diag(`Passkey ${sub || 'register'} requires a browser WebAuthn ceremony.`);
@@ -1758,6 +2446,13 @@ async function cmdPasskey(positional /*, flags */) {
 // MCP server — stdio JSON-RPC 2.0. Exposes a subset of commands as tools.
 // Spec: https://modelcontextprotocol.io
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * MCP tool registry. Each entry maps to a CloudCDN command and is exposed
+ * to MCP hosts (Claude Code, Cursor, …) via `tools/list`. `schema` is the
+ * JSON Schema used for argument validation by the host.
+ *
+ * @type {Array<{ name: string, desc: string, schema: Object }>}
+ */
 const MCP_TOOLS = [
   { name: 'cloudcdn_health', desc: 'Get CloudCDN health (optional deep=true)',
     schema: { type: 'object', properties: { deep: { type: 'boolean' } } } },
@@ -1791,6 +2486,15 @@ const MCP_TOOLS = [
     } } },
 ];
 
+/**
+ * Dispatch a single MCP `tools/call` request to the underlying command
+ * function. Captures stdout and stderr so the JSON-RPC channel stays
+ * clean and the captured text is returned to the host.
+ *
+ * @param {string} name - Tool name (must match a {@link MCP_TOOLS} entry).
+ * @param {Object} args - Tool arguments (validated by the host).
+ * @returns {Promise<{ stdout: string, stderr: string }>}
+ */
 async function mcpCall(name, args) {
   const flags = args || {};
   const sink = { out: [], err: [] };
@@ -1824,6 +2528,14 @@ async function mcpCall(name, args) {
   return { stdout: sink.out.join(''), stderr: sink.err.join('') };
 }
 
+/**
+ * `stratos mcp serve` — speak Model Context Protocol JSON-RPC 2.0 over
+ * stdio. Each newline-delimited request is parsed and answered with a
+ * single newline-delimited response on stdout. Malformed lines are
+ * silently ignored.
+ *
+ * @returns {Promise<void>} Resolves when stdin closes.
+ */
 async function cmdMcpServe() {
   const send = (obj) => process.stdout.write(JSON.stringify(obj) + '\n');
   const rl = createInterface({ input: process.stdin });
@@ -1862,12 +2574,29 @@ async function cmdMcpServe() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Router & main.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Mirror selected per-command flags into {@link FLAGS_GLOBAL} so output
+ * helpers (`info`, `emit`) can honour them without explicit threading.
+ *
+ * @param {Object} flags - Parsed CLI flags from {@link parseFlags}.
+ * @returns {void}
+ */
 function applyGlobalFlags(flags) {
   if (flags.quiet) FLAGS_GLOBAL.quiet = true;
   if (flags.verbose) FLAGS_GLOBAL.verbose = Number(flags.verbose) || 1;
   if (flags.json) FLAGS_GLOBAL.json = true;
 }
 
+/**
+ * Top-level CLI entry point. Resolves the command name, parses flags,
+ * applies global flags, and dispatches to the matching `cmd*` function.
+ *
+ * Invoked automatically by the script-entrypoint guard at the bottom of
+ * the file. Exposed for tests that need to drive the CLI in-process.
+ *
+ * @param {string[]} [argvOverride] - Use these args instead of `process.argv.slice(2)`.
+ * @returns {Promise<void>}
+ */
 export async function main(argvOverride) {
   const argv = argvOverride || process.argv.slice(2);
   if (argv.length === 0) { out(HELP_ROOT); return; }
