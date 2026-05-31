@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 
 <p align="center">
-  <img src="https://cloudcdn.pro/shared/logos/stratos.svg" alt="Stratos logo" width="128" />
+  <img src="https://cloudcdn.pro/stratos/v1/logos/stratos.svg" alt="Stratos logo" width="128" />
 </p>
 
 <h1 align="center">stratos</h1>
