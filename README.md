@@ -220,7 +220,7 @@ The config file is written with mode `0600`.
 ### Global options
 
 `--json` (force JSON), `-q`/`--quiet` (suppress info), `--verbose` (trace
-requests), `--profile <name>`, `--url <url>`, `--account-key <key>`,
+requests), `--profile <name>`, `--cdn-url <url>`, `--account-key <key>`,
 `--access-key <key>`, `--timeout <ms>`, `--retries <n>`.
 
 Run `stratos <command> --help` for per-command detail.

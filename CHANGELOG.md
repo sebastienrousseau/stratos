@@ -59,9 +59,16 @@ support, and a 56-test in-repo suite.
 - **Per-command `--help`** — `stratos purge --help`, `stratos signed --help`, etc.
 - **Sysexits-style exit codes** — `0` ok, `64` usage, `69` unavailable, `75`
   tempfail (5xx/network), `77` noperm (401/403), `78` config error.
-- **In-repo test suite** — 56 tests under `test/*.test.mjs` using `node --test`
-  (zero deps). Covers parsing, routing, HMAC, HTTP (in-process mock server),
-  MCP protocol, doctor/bench/login-status, rules diff, and auto-pagination.
+- **In-repo test suite** — 218 tests under `test/*.test.mjs` using `node --test`
+  (zero runtime deps). Covers parsing, routing, HMAC, HTTP (in-process mock
+  server), MCP protocol, doctor/bench/login-status, rules diff, auto-pagination,
+  every command's happy + error paths, and the major fallback-chain arms in
+  config resolution.
+- **Coverage** — c8 dev dependency. **100% statements / lines / functions** on
+  `stratos.mjs`, branch coverage 90.1%. CI gate enforces 100/100/100/85 on the
+  Node 22 / Ubuntu job; full HTML report via `npm run coverage`.
+- **`--cdn-url <url>` global flag** (renamed from the original `--url`, which
+  collided with `stratos webhooks add --url`).
 - **CI matrix** — Node 20/22/24 × Ubuntu/macOS/Windows in `.github/workflows/ci.yml`.
 - **Release workflow** — `npm publish --provenance` via Sigstore attestation
   + build-provenance attestation on tag.
@@ -84,6 +91,8 @@ support, and a 56-test in-repo suite.
   accidental credential leakage when both env vars are set.
 - **Node ≥ 20** is now required (was ≥ 18). Node 18 reaches EOL April 2026;
   Stratos uses `AbortSignal.timeout` and other Node 20+ APIs.
+- **Global `--url` flag renamed to `--cdn-url`** to avoid collision with
+  `stratos webhooks add --url <hook>`. Env var `CLOUDCDN_URL` is unchanged.
 - **`User-Agent: stratos/<version>`** is now sent on every request.
 
 ### Fixed

@@ -25,10 +25,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      - name: Install devDependencies
+        run: npm ci || npm install
       - name: Run tests
         env:
           STRATOS_NO_KEYCHAIN: '1'
         run: npm test
+      - name: Coverage gate (Node 22 / Ubuntu only)
+        if: matrix.node == '22' && matrix.os == 'ubuntu-latest'
+        env:
+          STRATOS_NO_KEYCHAIN: '1'
+        run: npm run coverage:check
 
   lint-installers:
     name: lint installers
