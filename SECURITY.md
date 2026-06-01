@@ -46,6 +46,20 @@ Each tagged release attaches:
   npm audit signatures
   ```
 
+- **npm Trusted Publishers (OIDC).** From v0.0.4 onward, the release
+  workflow does not consume an `NPM_TOKEN` secret. Instead, npm 11.5+
+  exchanges the GitHub-Actions OIDC token for a short-lived publish
+  token scoped to:
+  - owner: `sebastienrousseau`
+  - repo: `stratos`
+  - workflow: `.github/workflows/release.yml`
+  - environment: `npm` (GitHub deployment environment for additional
+    review/approval gates)
+
+  This means there is no long-lived publish token sitting in repo
+  secrets — a leak vector that npm's own threat model has flagged as
+  the highest-risk pattern.
+
 - **GitHub build provenance** (`actions/attest-build-provenance`) — an
   attestation for `stratos.mjs` linked to the workflow run that produced it.
   Verify with:

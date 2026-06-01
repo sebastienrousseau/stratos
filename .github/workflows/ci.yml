@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# Silence the GitHub-Actions Node 20 deprecation warning (forced cutover
+# on 2026-06-16) by opting every JS action into Node 24 now.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   test:
     name: test (node ${{ matrix.node }} · ${{ matrix.os }})

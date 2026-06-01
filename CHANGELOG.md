@@ -10,6 +10,21 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [Unreleased]
+
+### Changed
+
+- **npm publishing now uses OIDC Trusted Publishers** instead of a
+  long-lived `NPM_TOKEN` secret. `release.yml` exchanges the GitHub-
+  Actions OIDC token for a short-lived npm publish token scoped to
+  this repo + workflow path. The `NPM_TOKEN` repository secret is
+  no longer consumed and can be revoked from npm.
+- **Release job now targets the `npm` GitHub deployment environment**,
+  enabling per-release review/approval gates if you choose to add them.
+- **CI + release workflows opt every JavaScript action into Node 24**
+  via `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'`, ahead of the
+  GitHub-Actions Node 20 cutover on 2026-06-16.
+
 ## [0.0.3] — 2026-06-01
 
 ### Added
