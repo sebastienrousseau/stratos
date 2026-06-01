@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
-## [Unreleased]
+## [0.0.3] — 2026-06-01
 
 ### Added
 
@@ -158,5 +158,6 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.3]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.3
 [0.0.2]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.2
 [0.0.1]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.1

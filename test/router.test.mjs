@@ -9,21 +9,21 @@ const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'stratos.mjs');
 const run = (args, env = {}) => spawnSync(process.execPath, [CLI, ...args],
   { env: { ...process.env, ...env, NO_COLOR: '1' }, encoding: 'utf8' });
 
-test('router: version prints v0.0.2', () => {
+test('router: version prints v0.0.3', () => {
   const r = run(['version']);
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /^stratos v0\.0\.2/);
+  assert.match(r.stdout, /^stratos v0\.0\.3/);
 });
 
 test('router: -v and --version both work', () => {
-  assert.match(run(['-v']).stdout, /v0\.0\.2/);
-  assert.match(run(['--version']).stdout, /v0\.0\.2/);
+  assert.match(run(['-v']).stdout, /v0\.0\.3/);
+  assert.match(run(['--version']).stdout, /v0\.0\.3/);
 });
 
 test('router: bare invocation prints help, exits 0', () => {
   const r = run([]);
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /stratos v0\.0\.2/);
+  assert.match(r.stdout, /stratos v0\.0\.3/);
 });
 
 test('router: unknown command exits EX_USAGE (64)', () => {

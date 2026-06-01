@@ -59,7 +59,7 @@ const CASTS = {
     events: [
       [0.4, prompt],
       [0.6, 'stratos version\r\n'],
-      [0.3, `stratos v0.0.2\r\n`],
+      [0.3, `stratos v0.0.3\r\n`],
       [0.4, prompt],
       [1.0, ''],
     ],
