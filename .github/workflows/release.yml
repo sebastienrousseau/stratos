@@ -2,6 +2,14 @@
 #
 # Publishes to npm with Sigstore provenance when a v* tag lands on main.
 # Also attaches SHA256SUMS + provenance attestation to the GitHub release.
+#
+# Auth: npm Trusted Publishers (OIDC). No NPM_TOKEN secret is consumed —
+# npm CLI ≥ 11.5 exchanges the GitHub-Actions OIDC token for a short-lived
+# publish token, scoped to this repository + workflow path. Setup is on
+# the npm side at:
+#   https://www.npmjs.com/package/@cloudcdn/stratos/access
+# Trusted Publisher → GitHub Actions → owner sebastienrousseau,
+# repo stratos, workflow .github/workflows/release.yml (env left blank).
 
 name: release
 
@@ -12,18 +20,38 @@ on:
 
 permissions:
   contents: write
-  id-token: write   # required for npm provenance
+  id-token: write   # required for OIDC + npm provenance
   attestations: write
+
+# Silence the GitHub-Actions Node 20 deprecation warning (forced cutover
+# on 2026-06-16) by opting every JS action into Node 24 now.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@cloudcdn/stratos
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          # Node 24 ships npm 11.x which has native OIDC trusted-publisher
+          # support; older Nodes need a manual `npm install -g npm@latest`.
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify npm has OIDC trusted-publisher support
+        run: |
+          set -e
+          npm --version
+          # npm 11.5+ is required for OIDC publishing without a token.
+          # The runner image's bundled npm may lag behind; upgrade just in
+          # case. This is a no-op when already current.
+          npm install -g npm@latest
+          npm --version
 
       - name: Run tests
         env:
@@ -40,10 +68,11 @@ jobs:
         with:
           subject-path: 'stratos.mjs'
 
-      - name: Publish to npm with provenance
+      - name: Publish to npm (OIDC + provenance)
+        # No NODE_AUTH_TOKEN. npm exchanges the GitHub OIDC token for a
+        # short-lived publish token against the trusted-publisher config
+        # registered on the package page.
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Attach release artifacts
         uses: softprops/action-gh-release@v2
