@@ -10,20 +10,29 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
-## [Unreleased]
+## [0.0.4] — 2026-06-01
+
+### Added
+
+- **`stratos explain <code|status>`** — look up cause + fix for sysexits exit codes (`64`, `EX_NOPERM`, `EX_TEMPFAIL`, …) and HTTP statuses (`401`, `429`, …). `--json` for machine-readable output.
+- **`stratos init`** — interactive first-run setup wizard. Walks through profile creation (name, CDN URL, optional keys) and writes the result to `~/.config/stratos/config.json`. Every prompt accepts a `--<key>=<value>` override so the command is fully scriptable from CI.
+- **`stratos config edit`** — open `$EDITOR` / `$VISUAL` (or platform default) on the config file. Validates JSON on save; refuses to keep an invalid file.
+- **MCP Resources** — `cloudcdn://{health,insights/summary,insights/top,insights/errors,zones,assets}`. MCP hosts (Claude Code, Cursor) can read these directly without invoking tools. 6 resources total.
+- **MCP Prompts** — 4 ready-to-use prompt templates with named arguments: `cache_bust_after_deploy`, `triage_error_spike`, `alt_text_batch`, `audit_recent_tokens`. Renderable via `prompts/get`.
+- **Single-binary distribution** — `scripts/build-binary.mjs` uses Bun's `bun build --compile` to produce static binaries for `linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, and `win-x64`. Cold start drops to ~20 ms (from ~50 ms via `node stratos.mjs`). Attached to every GitHub Release.
+- **CycloneDX SBOM** in every release (`dist/sbom.cyclonedx.json`, spec 1.6). Generated via `@cyclonedx/cyclonedx-npm` in `release.yml`, attested via `actions/attest-build-provenance@v1`.
+- **`man stratos`** — `scripts/make-man.mjs` generates roff from the live help text + JSDoc. `install.sh` best-effort-installs the gzipped man page into `~/.local/share/man/man1/stratos.1.gz`.
 
 ### Changed
 
-- **npm publishing now uses OIDC Trusted Publishers** instead of a
-  long-lived `NPM_TOKEN` secret. `release.yml` exchanges the GitHub-
-  Actions OIDC token for a short-lived npm publish token scoped to
-  this repo + workflow path. The `NPM_TOKEN` repository secret is
-  no longer consumed and can be revoked from npm.
-- **Release job now targets the `npm` GitHub deployment environment**,
-  enabling per-release review/approval gates if you choose to add them.
-- **CI + release workflows opt every JavaScript action into Node 24**
-  via `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'`, ahead of the
-  GitHub-Actions Node 20 cutover on 2026-06-16.
+- **MCP `initialize` capability set** now advertises `tools`, `resources`, and `prompts`.
+- **`install.sh` finishes with `stratos doctor`** suggestion (alongside `version` / `help`).
+
+### Changed (CI/release, no user-facing impact)
+
+- **npm publishing now uses OIDC Trusted Publishers** instead of a long-lived `NPM_TOKEN` secret. `release.yml` exchanges the GitHub-Actions OIDC token for a short-lived npm publish token scoped to this repo + workflow path. The `NPM_TOKEN` repository secret is no longer consumed.
+- **Release job targets the `npm` GitHub deployment environment**, enabling per-release review/approval gates if you choose to add them.
+- **CI + release workflows opt every JavaScript action into Node 24** via `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'`, ahead of the GitHub-Actions Node 20 cutover on 2026-06-16.
 
 ## [0.0.3] — 2026-06-01
 
@@ -173,6 +182,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.4]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.4
 [0.0.3]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.3
 [0.0.2]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.2
 [0.0.1]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.1

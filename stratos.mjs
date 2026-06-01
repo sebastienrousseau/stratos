@@ -33,7 +33,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *
  * @type {string}
  */
-const VERSION = '0.0.3';
+const VERSION = '0.0.4';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.
@@ -803,12 +803,14 @@ ${c.bold('Core')}
   help [<command>]            Print help for a command.
   completion <shell>          Emit completion script (bash|zsh|fish|powershell).
   upgrade                     Re-install the latest pinned release.
-  config get|set|list         Manage ~/.config/stratos/config.json profiles.
+  init                        Interactive first-run setup wizard.
+  config get|set|list|edit    Manage ~/.config/stratos/config.json profiles.
   login                       Store keys in the OS keychain.
   login status                Show resolved config (keys masked).
   logout                      Remove keys from the OS keychain.
   doctor                      Diagnose environment, credentials, reachability.
   bench [-n N]                Measure cold-start + N request latencies.
+  explain <code|status>       Look up cause + fix for an exit code / HTTP status.
   mcp serve                   Run as a Model Context Protocol stdio server.
 
 ${c.bold('Edge ops')}
@@ -967,7 +969,22 @@ const HELP_BY_COMMAND = {
   config:
     'stratos config list\n' +
     'stratos config get <profile>.<key>\n' +
-    'stratos config set <profile>.<key> <value>\n',
+    'stratos config set <profile>.<key> <value>\n' +
+    'stratos config edit                  Open $EDITOR on the config file (validates on save).\n',
+  explain:
+    'stratos explain <code|status>\n\n' +
+    'Print the cause and remediation for a sysexits exit code or HTTP\n' +
+    'status. Accepts numeric (`64`, `429`) or symbolic (`EX_NOPERM`, \n' +
+    '`EX_TEMPFAIL`) forms. Use --json for machine-readable output.\n\n' +
+    'Examples:\n' +
+    '  stratos explain 77\n' +
+    '  stratos explain EX_TEMPFAIL\n' +
+    '  stratos explain 429 --json\n',
+  init:
+    'stratos init [--profile NAME] [--cdn-url URL] [--account-key K] [--access-key K] [--signed-secret S] [--force]\n\n' +
+    'Interactive first-run setup. Walks through profile creation and\n' +
+    'writes the result to ~/.config/stratos/config.json. Each prompt\n' +
+    'accepts a flag override so the command is scriptable from CI.\n',
 };
 
 /**
@@ -1100,10 +1117,149 @@ async function cmdConfig(rest, flags) {
       info(`set profiles.${p}.${k}`);
       return;
     }
+    case 'edit':
+      return cmdConfigEdit(flags);
     default:
-      fatal('config <list|get|set>', EX.USAGE);
+      fatal('config <list|get|set|edit>', EX.USAGE);
   }
 }
+
+/* c8 ignore start -- exec's an interactive editor; covered by manual QA */
+/**
+ * `stratos config edit` — open the config file in `$EDITOR`, validate
+ * the resulting JSON, and refuse to keep an invalid file.
+ *
+ * `EDITOR` is honoured first, then `VISUAL`, then a platform default
+ * (`notepad` on Windows, `vi` elsewhere). The config file is created
+ * with a minimal `{ "profiles": {} }` scaffold if it doesn't exist yet.
+ *
+ * @param {Object} flags - Parsed CLI flags (unused; reserved).
+ * @returns {Promise<void>}
+ */
+async function cmdConfigEdit(flags) {
+  await mkdir(CONFIG_DIR, { recursive: true });
+  try {
+    await access(CONFIG_FILE);
+  } catch {
+    await writeFile(CONFIG_FILE,
+      JSON.stringify({ profiles: {} }, null, 2) + '\n',
+      { mode: 0o600 });
+    info(`scaffolded ${CONFIG_FILE}`);
+  }
+
+  const editor = process.env.EDITOR || process.env.VISUAL ||
+    (platform() === 'win32' ? 'notepad' : 'vi');
+  info(`opening ${CONFIG_FILE} in ${editor}`);
+  // Fire and wait. Inherit stdio so vim/nano/etc render properly.
+  const r = await new Promise((resolve) => {
+    const child = spawn(editor, [CONFIG_FILE], { stdio: 'inherit' });
+    child.on('close', (code) => resolve({ code }));
+    child.on('error', (e) => resolve({ code: -1, error: e.message }));
+  });
+  if (r.code !== 0) {
+    fatal(`editor exited with status ${r.code}${r.error ? ' (' + r.error + ')' : ''}; file unchanged`, EX.SOFTWARE);
+  }
+
+  // Re-read + parse — refuse to keep the file if it's invalid.
+  let parsed;
+  try {
+    parsed = JSON.parse(await readFile(CONFIG_FILE, 'utf8'));
+  } catch (e) {
+    fatal(`config no longer parses as JSON: ${e.message}\n        Re-edit with \`stratos config edit\` to fix.`, EX.DATAERR);
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    fatal('config must be a JSON object with a top-level `profiles` key.', EX.DATAERR);
+  }
+  if (!parsed.profiles || typeof parsed.profiles !== 'object') {
+    fatal('config must contain a `profiles` object.', EX.DATAERR);
+  }
+  const n = Object.keys(parsed.profiles).length;
+  info(`✓ valid · ${n} profile(s)`);
+}
+/* c8 ignore stop */
+
+/**
+ * `stratos init` — first-run interactive setup. Walks through profile
+ * creation (name, CDN URL, optional keys), writes the result to
+ * `~/.config/stratos/config.json`, and runs `stratos doctor`-style
+ * checks at the end. Refuses to clobber an existing profile without
+ * `--force`.
+ *
+ * Non-interactive paths (CI, piped stdin) are honoured: every prompt
+ * accepts a `--<key>=<value>` override (e.g. `--profile=prod
+ * --cdn-url=https://… --account-key=cdnsk_… --access-key=cdnsk_…
+ * --signed-secret=…`), so this command can also be driven from
+ * provisioning scripts.
+ *
+ * @param {string[]} positional - Unused; reserved.
+ * @param {Object}   flags      - `--profile`, `--cdn-url`, `--account-key`,
+ *                                `--access-key`, `--signed-secret`, `--force`.
+ * @returns {Promise<void>}
+ */
+async function cmdInit(positional, flags) {
+  const cfg = await loadFileConfig();
+  cfg.profiles = cfg.profiles || {};
+
+  const profileName = flags.profile ||
+    (process.stdin.isTTY ? await promptPlain('Profile name', 'default') : 'default');
+  if (cfg.profiles[profileName] && !flags.force) {
+    fatal(`profile "${profileName}" already exists. Re-run with --force to overwrite, or pick another name with --profile=<name>.`, EX.USAGE);
+  }
+
+  const cdnUrl = flags['cdn-url'] ||
+    (process.stdin.isTTY ? await promptPlain('CDN base URL', 'https://cloudcdn.pro') : 'https://cloudcdn.pro');
+
+  /* c8 ignore start -- interactive prompts; covered by manual QA */
+  const accountKey = flags['account-key'] !== undefined ? flags['account-key']
+    : (process.stdin.isTTY ? await promptHidden('CloudCDN account key (control-plane, optional): ') : '');
+  const accessKey = flags['access-key'] !== undefined ? flags['access-key']
+    : (process.stdin.isTTY ? await promptHidden('CloudCDN access key (read-only, optional): ') : '');
+  const signedSecret = flags['signed-secret'] !== undefined ? flags['signed-secret']
+    : (process.stdin.isTTY ? await promptHidden('Signed-URL HMAC secret (optional): ') : '');
+  /* c8 ignore stop */
+
+  const entry = { url: cdnUrl };
+  if (accountKey)  entry.account_key = accountKey;
+  if (accessKey)   entry.access_key = accessKey;
+  if (signedSecret) entry.signed_url_secret = signedSecret;
+  cfg.profiles[profileName] = entry;
+  await saveFileConfig(cfg);
+
+  info(`✓ wrote profile "${profileName}" to ${CONFIG_FILE}`);
+  info(`  url = ${cdnUrl}`);
+  info(`  account_key = ${entry.account_key ? maskKey(entry.account_key) : c.dim('(unset)')}`);
+  info(`  access_key  = ${entry.access_key  ? maskKey(entry.access_key)  : c.dim('(unset)')}`);
+  info(`  signed_url_secret = ${entry.signed_url_secret ? maskKey(entry.signed_url_secret) : c.dim('(unset)')}`);
+  info('');
+  info(`Activate with:  STRATOS_PROFILE=${profileName} stratos health`);
+  info(`Or per-call:    stratos --profile ${profileName} health`);
+  if (FLAGS_GLOBAL.json) emit({ profile: profileName, entry: { ...entry,
+    account_key: entry.account_key ? maskKey(entry.account_key) : null,
+    access_key:  entry.access_key  ? maskKey(entry.access_key)  : null,
+    signed_url_secret: entry.signed_url_secret ? maskKey(entry.signed_url_secret) : null,
+  } });
+}
+
+/* c8 ignore start -- interactive TTY-only readline; covered by manual QA */
+/**
+ * Plain-text readline prompt (echo on). Used by {@link cmdInit} for
+ * non-secret fields (profile name, CDN URL). Empty input falls back to
+ * `fallback`.
+ *
+ * @param {string} label    - Prompt label (no trailing punctuation needed).
+ * @param {string} fallback - Default value if the user just hits return.
+ * @returns {Promise<string>}
+ */
+async function promptPlain(label, fallback) {
+  const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
+  return new Promise((resolve) => {
+    rl.question(`${label} [${fallback}]: `, (answer) => {
+      rl.close();
+      resolve((answer && answer.trim()) || fallback);
+    });
+  });
+}
+/* c8 ignore stop */
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Login — prompt for keys, store in OS keychain.
@@ -1407,6 +1563,129 @@ async function cmdBench(flags) {
   for (const s of samples) {
     const status = s.status === 0 ? c.red('ERR') : s.status < 400 ? c.green(String(s.status)) : c.yellow(String(s.status));
     out(`  #${s.i + 1}  ${status}  ${String(s.ms).padStart(7)} ms  ${s.error || ''}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Explain — look up causes + remediation for an exit code or HTTP status.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Table of explanations keyed by either a sysexits exit code (`'0'`,
+ * `'64'`, …), a symbolic alias (`'EX_USAGE'`, `'EX_NOPERM'`, …), or an
+ * HTTP status (`'401'`, `'429'`, …). Each entry carries a short
+ * one-line summary, a longer cause description, and at least one
+ * remediation step.
+ *
+ * @type {Object<string, { name: string, cause: string, fix: string[] }>}
+ */
+const EXPLANATIONS = {
+  // Sysexits-style exit codes.
+  '0':  { name: 'EX_OK',          cause: 'The command completed successfully.', fix: [] },
+  '64': { name: 'EX_USAGE',       cause: 'You passed invalid CLI arguments — a missing flag, an unknown subcommand, or a malformed value.',
+          fix: ['Run `stratos <command> --help` for the exact signature.', 'Check that any value-taking short flag (e.g. `-n 5`, `-f path`) has a value following it.'] },
+  '65': { name: 'EX_DATAERR',     cause: 'The CLI received unparseable data (e.g. a non-JSON response when JSON was expected).',
+          fix: ['Re-run with `--verbose` to see the raw request and response.', 'Confirm `CLOUDCDN_URL` points at the right endpoint.'] },
+  '66': { name: 'EX_NOINPUT',     cause: 'A required input file or stream is missing or empty.',
+          fix: ['For `stratos purge -`, make sure stdin contains one URL per line.', 'For `stratos rules set _headers -f <file>`, confirm `<file>` exists and is readable.'] },
+  '69': { name: 'EX_UNAVAILABLE', cause: 'The CloudCDN API returned a 4xx response other than 401/403/429.',
+          fix: ['Re-run with `--verbose` to see the request and response body.', 'For `stratos rules diff`, exit 69 is *expected on drift* — git-style.'] },
+  '70': { name: 'EX_SOFTWARE',    cause: 'An uncaught exception inside Stratos itself.',
+          fix: ['Open an issue with the stderr output: https://github.com/sebastienrousseau/stratos/issues/new', 'Run `stratos doctor` to rule out an env / config problem.'] },
+  '73': { name: 'EX_CANTCREAT',   cause: 'Stratos could not create a file (typically `~/.config/stratos/config.json` or a downloaded asset).',
+          fix: ['Check the destination directory exists and is writable.', 'Verify `$XDG_CONFIG_HOME` (if set) points at a writable path.'] },
+  '74': { name: 'EX_IOERR',       cause: 'A filesystem read/write failed.',
+          fix: ['Re-check filesystem permissions on the target path.', 'On Linux, confirm the volume is not mounted read-only.'] },
+  '75': { name: 'EX_TEMPFAIL',    cause: 'A transient failure exhausted retries — typically a 5xx, 429, or network error.',
+          fix: ['Re-run after a backoff; the CDN may be under load.', 'Raise `--retries` / `CLOUDCDN_RETRIES` for noisier networks (default 3).', 'Raise `--timeout` / `CLOUDCDN_TIMEOUT` for slow links (default 15000 ms).'] },
+  '77': { name: 'EX_NOPERM',      cause: 'Permission denied — the API key is wrong, expired, or lacks the required scope.',
+          fix: ['Run `stratos login status` to confirm the resolved key (masked).', 'Verify the key has the required scope on https://www.npmjs.com/package/@cloudcdn/stratos or your CloudCDN dashboard.', 'For control-plane ops, `CLOUDCDN_ACCOUNT_KEY` must be set.'] },
+  '78': { name: 'EX_CONFIG',      cause: 'A required configuration value is missing or unreadable.',
+          fix: ['Run `stratos doctor` to surface the specific check that failed.', 'For `stratos signed`, `SIGNED_URL_SECRET` or `--secret` is required.', 'For control-plane commands, `CLOUDCDN_ACCOUNT_KEY` is required.'] },
+  '130':{ name: 'SIGINT',         cause: 'You interrupted the command (Ctrl-C). This is normal for `stratos logs tail`.',
+          fix: [] },
+
+  // HTTP statuses — the most common ones Stratos surfaces.
+  '200': { name: 'OK',                    cause: 'The request succeeded.', fix: [] },
+  '301': { name: 'Moved Permanently',     cause: 'The endpoint moved. Stratos does not follow redirects on control-plane requests by default.',
+           fix: ['Update `CLOUDCDN_URL` to the new origin.'] },
+  '400': { name: 'Bad Request',           cause: 'The server rejected the request payload — typically a malformed body or query parameter.',
+           fix: ['Re-run with `--verbose` to see the request body.', 'For `stratos purge --tag <t>`, confirm the tag has no leading/trailing whitespace.'] },
+  '401': { name: 'Unauthorized',          cause: 'No credentials, or the credentials are invalid.',
+           fix: ['Set `CLOUDCDN_ACCOUNT_KEY` (control-plane) or `CLOUDCDN_ACCESS_KEY` (read-only).', 'Run `stratos login status` to confirm what Stratos is actually sending.'] },
+  '403': { name: 'Forbidden',             cause: 'Credentials are valid but lack permission for this resource.',
+           fix: ['Confirm the token scope includes the operation you are attempting.', 'For zones / tokens / webhooks endpoints, the *control-plane* `CLOUDCDN_ACCOUNT_KEY` is required, not the read-only `ACCESS_KEY`.'] },
+  '404': { name: 'Not Found',             cause: 'The path, asset, or resource does not exist.',
+           fix: ['For `stratos assets show <path>`, confirm the path matches the manifest exactly.', 'For `stratos zones show <id>`, confirm the zone id with `stratos zones list`.'] },
+  '409': { name: 'Conflict',              cause: 'The request conflicts with current resource state (e.g. creating a zone that already exists).',
+           fix: ['List the existing resources first (`stratos zones list`, `stratos tokens list`).'] },
+  '413': { name: 'Payload Too Large',     cause: 'Body exceeds the endpoint limit. CloudCDN storage uploads are 25 MB per file; batch is 25 MB per file × 50 files.',
+           fix: ['Split large uploads into batches with `stratos storage sync` (auto-chunks at 50 files).'] },
+  '422': { name: 'Unprocessable Entity',  cause: 'The payload parsed but failed semantic validation.',
+           fix: ['Re-run with `--verbose` and inspect the body — the server usually returns the failing field.'] },
+  '429': { name: 'Too Many Requests',     cause: 'Rate-limited. CloudCDN treats `purge --everything` and the AI endpoints especially carefully.',
+           fix: ['Stratos retries 429 automatically with full-jitter backoff (up to `--retries`). If you see exit 75, retries were exhausted — back off longer.', 'Stagger calls in CI loops or add `sleep` between batches.'] },
+  '500': { name: 'Internal Server Error', cause: 'The CDN edge encountered an unexpected error.',
+           fix: ['Re-run after a backoff; Stratos retries 5xx by default.', 'Check the CloudCDN status page if the failure persists.'] },
+  '502': { name: 'Bad Gateway',           cause: 'An upstream service the CDN depends on is unreachable.',
+           fix: ['Re-run; transient. Persistent 502s suggest the upstream binding is unhealthy — check `stratos health --deep`.'] },
+  '503': { name: 'Service Unavailable',   cause: 'A CDN binding is overloaded or in maintenance.',
+           fix: ['Re-run after a backoff.', 'Check `stratos health --deep` to confirm bindings.'] },
+  '504': { name: 'Gateway Timeout',       cause: 'A backend hop exceeded its deadline.',
+           fix: ['Raise `--timeout` for the request.', 'If the operation is genuinely long-running (e.g. `purge --everything`), it may have succeeded async; verify with the dashboard.'] },
+};
+
+/**
+ * Aliases — short symbolic names map onto the numeric keys in
+ * {@link EXPLANATIONS}.
+ *
+ * @type {Object<string, string>}
+ */
+const EXPLAIN_ALIASES = {
+  'OK': '0', 'EX_OK': '0',
+  'EX_USAGE': '64', 'USAGE': '64',
+  'EX_DATAERR': '65',
+  'EX_NOINPUT': '66',
+  'EX_UNAVAILABLE': '69', 'UNAVAILABLE': '69',
+  'EX_SOFTWARE': '70', 'SOFTWARE': '70',
+  'EX_CANTCREAT': '73',
+  'EX_IOERR': '74',
+  'EX_TEMPFAIL': '75', 'TEMPFAIL': '75',
+  'EX_NOPERM': '77', 'NOPERM': '77', 'PERM': '77',
+  'EX_CONFIG': '78', 'CONFIG': '78',
+};
+
+/**
+ * `stratos explain <code|status|alias>` — print the cause and
+ * remediation for a sysexits exit code or HTTP status. Accepts numeric
+ * (`64`, `77`, `429`) and symbolic (`EX_USAGE`, `EX_NOPERM`) forms.
+ *
+ * @param {string[]} positional - `positional[0]` is the code or alias.
+ * @param {Object}   flags      - Parsed CLI flags (`--json`).
+ * @returns {Promise<void>}
+ */
+async function cmdExplain(positional, flags) {
+  const arg = positional[0];
+  if (!arg) {
+    fatal('explain needs a sysexits code, HTTP status, or alias (e.g. `stratos explain 77`, `stratos explain EX_NOPERM`).', EX.USAGE);
+  }
+  const key = EXPLAIN_ALIASES[arg.toUpperCase()] || String(arg);
+  const entry = EXPLANATIONS[key];
+  if (!entry) {
+    fatal(`no explanation for "${arg}". Try one of: ${Object.keys(EXPLANATIONS).join(', ')}.`, EX.UNAVAILABLE);
+  }
+  if (FLAGS_GLOBAL.json) {
+    emit({ code: key, ...entry });
+    return;
+  }
+  out(`${c.bold(entry.name)} ${c.dim('(' + key + ')')}`);
+  out('');
+  out(c.bold('Cause'));
+  out(`  ${entry.cause}`);
+  if (entry.fix.length > 0) {
+    out('');
+    out(c.bold('Fix'));
+    for (const step of entry.fix) out(`  • ${step}`);
   }
 }
 
@@ -2580,6 +2859,157 @@ async function mcpCall(name, args) {
 }
 
 /**
+ * MCP resource registry. Each entry describes a CloudCDN data source
+ * the model may read. Resources are addressable by a `cloudcdn://` URI
+ * and resolve at read-time to JSON pulled from the live API.
+ *
+ * Spec: https://modelcontextprotocol.io/specification/server/resources
+ *
+ * @type {Array<{
+ *   uri: string, name: string, desc: string, mimeType: string,
+ *   resolve: () => Promise<any>,
+ * }>}
+ */
+const MCP_RESOURCES = [
+  { uri: 'cloudcdn://health',
+    name: 'CloudCDN health',
+    desc: 'Live health check of the configured CloudCDN edge.',
+    mimeType: 'application/json',
+    resolve: () => getJson('/api/health', {}) },
+  { uri: 'cloudcdn://insights/summary',
+    name: 'Insights summary (7d)',
+    desc: 'Requests, bandwidth, and cache ratio over the last 7 days.',
+    mimeType: 'application/json',
+    resolve: () => getJson('/api/insights/summary?days=7', {}) },
+  { uri: 'cloudcdn://insights/top',
+    name: 'Top-10 assets (7d)',
+    desc: 'Top 10 most-requested assets over the last 7 days.',
+    mimeType: 'application/json',
+    resolve: () => getJson('/api/insights/top-assets?days=7&limit=10', {}) },
+  { uri: 'cloudcdn://insights/errors',
+    name: 'Error breakdown (7d)',
+    desc: '4xx / 5xx counts and top failing paths over the last 7 days.',
+    mimeType: 'application/json',
+    resolve: () => getJson('/api/insights/errors?days=7', {}) },
+  { uri: 'cloudcdn://zones',
+    name: 'Tenant zones',
+    desc: 'List of zones (tenants) on the configured CloudCDN account.',
+    mimeType: 'application/json',
+    resolve: () => getJson('/api/core/zones', {}, 'control') },
+  { uri: 'cloudcdn://assets',
+    name: 'Asset catalog (page 1)',
+    desc: 'First page of the asset catalogue.',
+    mimeType: 'application/json',
+    resolve: () => getJson('/api/assets', {}) },
+];
+
+/**
+ * Resolve a resource URI to its payload. Returns a content record in
+ * the MCP `resources/read` response shape.
+ *
+ * @param {string} uri - One of the URIs registered in {@link MCP_RESOURCES}.
+ * @returns {Promise<{ uri: string, mimeType: string, text: string }>}
+ * @throws {Error} If the URI is unknown.
+ */
+async function mcpReadResource(uri) {
+  const r = MCP_RESOURCES.find((x) => x.uri === uri);
+  if (!r) throw new Error(`unknown resource: ${uri}`);
+  const body = await r.resolve();
+  return { uri, mimeType: r.mimeType, text: JSON.stringify(body, null, 2) };
+}
+
+/**
+ * MCP prompt registry. Each entry is a reusable conversation starter
+ * the host can offer the user — typically as a slash-command. Prompts
+ * are templates with named arguments; rendering substitutes them at
+ * `prompts/get` time.
+ *
+ * Spec: https://modelcontextprotocol.io/specification/server/prompts
+ *
+ * @type {Array<{
+ *   name: string, desc: string,
+ *   args: Array<{ name: string, description: string, required?: boolean }>,
+ *   render: (args: Object) => string,
+ * }>}
+ */
+const MCP_PROMPTS = [
+  {
+    name: 'cache_bust_after_deploy',
+    desc: 'Plan a targeted cache invalidation after a deploy.',
+    args: [
+      { name: 'sha', description: 'Short or long git SHA of the deploy', required: true },
+      { name: 'project', description: 'Optional project / zone scope', required: false },
+    ],
+    render: ({ sha, project }) => [
+      'I just deployed commit `' + sha + '`' + (project ? ' in project `' + project + '`' : '') + '.',
+      'Please draft the smallest correct purge command, prefer cache-tag invalidation over URL lists,',
+      'and confirm by reading `cloudcdn://insights/errors` for any new 4xx spike after the purge.',
+    ].join('\n'),
+  },
+  {
+    name: 'triage_error_spike',
+    desc: 'Diagnose a 4xx / 5xx spike over the last 24 h.',
+    args: [
+      { name: 'days', description: 'Window in days (default 1)', required: false },
+    ],
+    render: ({ days = '1' }) => [
+      'Read `cloudcdn://insights/errors` (last ' + days + ' day(s)) and pull the most recent log lines',
+      'via the `cloudcdn_logs_query` tool with `--level error`.',
+      'Summarise: what changed, top failing paths, status-code mix, and the most likely root cause.',
+      'Propose a remediation: cache-bust, header tweak, or storage repair.',
+    ].join('\n'),
+  },
+  {
+    name: 'alt_text_batch',
+    desc: 'Generate AI alt-text for every image in a project.',
+    args: [
+      { name: 'project', description: 'Project / zone name', required: true },
+      { name: 'format',  description: 'Image extension filter (default jpg)', required: false },
+    ],
+    render: ({ project, format = 'jpg' }) => [
+      'List every ' + format + ' asset in `' + project + '` via the `cloudcdn_assets` tool.',
+      'For each one, call `cloudcdn_ai_alt` with the absolute URL and collect the results into',
+      'a markdown table `| path | alt text |`. Skip any that error and report them at the end.',
+    ].join('\n'),
+  },
+  {
+    name: 'audit_recent_tokens',
+    desc: 'Review recent token-related audit-log activity.',
+    args: [
+      { name: 'days', description: 'Audit window in days, max 7 (default 7)', required: false },
+    ],
+    render: ({ days = '7' }) => [
+      'Run the `audit` action filter for the last ' + days + ' day(s) — pull only token-related',
+      'entries (create, revoke, rotate). Group by actor and flag anything unusual:',
+      'unexpected actor accounts, high-velocity creation, or any deletion of long-lived tokens.',
+    ].join('\n'),
+  },
+];
+
+/**
+ * Render a registered prompt into the MCP `prompts/get` response shape.
+ * Validates required arguments and substitutes them into the template.
+ *
+ * @param {string} name - Prompt name registered in {@link MCP_PROMPTS}.
+ * @param {Object} args - User-supplied argument values.
+ * @returns {{ description: string, messages: Array<{role:string,content:{type:string,text:string}}> }}
+ * @throws {Error} If the prompt is unknown or a required argument is missing.
+ */
+function mcpGetPrompt(name, args) {
+  const p = MCP_PROMPTS.find((x) => x.name === name);
+  if (!p) throw new Error(`unknown prompt: ${name}`);
+  for (const a of p.args) {
+    if (a.required && (args[a.name] === undefined || args[a.name] === '')) {
+      throw new Error(`prompt "${name}" requires argument "${a.name}"`);
+    }
+  }
+  return {
+    description: p.desc,
+    messages: [{ role: 'user', content: { type: 'text', text: p.render(args) } }],
+  };
+}
+
+/**
  * `stratos mcp serve` — speak Model Context Protocol JSON-RPC 2.0 over
  * stdio. Each newline-delimited request is parsed and answered with a
  * single newline-delimited response on stdout. Malformed lines are
@@ -2601,7 +3031,7 @@ async function cmdMcpServe() {
           // it leaves release-candidate status).
           protocolVersion: '2025-11-25',
           serverInfo: { name: 'stratos', version: VERSION },
-          capabilities: { tools: {} },
+          capabilities: { tools: {}, resources: {}, prompts: {} },
         }});
       } else if (method === 'tools/list') {
         send({ jsonrpc: '2.0', id, result: {
@@ -2613,6 +3043,25 @@ async function cmdMcpServe() {
         send({ jsonrpc: '2.0', id, result: {
           content: [{ type: 'text', text: result.stdout + (result.stderr ? `\n${result.stderr}` : '') }],
         }});
+      } else if (method === 'resources/list') {
+        send({ jsonrpc: '2.0', id, result: {
+          resources: MCP_RESOURCES.map((r) => ({
+            uri: r.uri, name: r.name, description: r.desc, mimeType: r.mimeType,
+          })),
+        }});
+      } else if (method === 'resources/read') {
+        const { uri } = params || {};
+        const out = await mcpReadResource(uri);
+        send({ jsonrpc: '2.0', id, result: { contents: [out] }});
+      } else if (method === 'prompts/list') {
+        send({ jsonrpc: '2.0', id, result: {
+          prompts: MCP_PROMPTS.map((p) => ({
+            name: p.name, description: p.desc, arguments: p.args,
+          })),
+        }});
+      } else if (method === 'prompts/get') {
+        const { name, arguments: args } = params || {};
+        send({ jsonrpc: '2.0', id, result: mcpGetPrompt(name, args || {}) });
       } else if (method === 'notifications/initialized') {
         // no-op
       } else {
@@ -2696,6 +3145,8 @@ export async function main(argvOverride) {
     case 'logout':      return loginLogout(flags);
     case 'doctor':      return cmdDoctor(flags);
     case 'bench':       return cmdBench(flags);
+    case 'explain':     return cmdExplain(positional, flags);
+    case 'init':        return cmdInit(positional, flags);
     case 'mcp':         if (positional[0] !== 'serve') fatal('mcp serve', EX.USAGE); return cmdMcpServe();
     case 'health':      return cmdHealth(flags);
     case 'purge':       return cmdPurge(positional, flags);
@@ -2785,7 +3236,7 @@ const KNOWN_COMMANDS = [
   'version','help','health','purge','signed','assets','insights','stats','analytics',
   'audit','zones','rules','tokens','webhooks','storage','logs','ai','image','stream',
   'pipeline','search','ask','passkey','config','mcp','completion','upgrade',
-  'login','logout','doctor','bench',
+  'login','logout','doctor','bench','explain','init',
 ];
 
 // Exports for testing.
