@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [Unreleased]
+
+### Added
+
+- **Fuzzy "did you mean?"** — unknown commands now suggest the closest match by Levenshtein distance (`stratos prge` → "Did you mean 'purge'?").
+- **CI-mode auto-detect** — when `GITHUB_ACTIONS`, `GITLAB_CI`, `CIRCLECI`, `JENKINS_URL`, `TF_BUILD`, or `CI=true` is present, Stratos auto-enables `--json --quiet`. Override with `STRATOS_CI=0` or `--no-json` / `--no-quiet`.
+- **GitHub Actions workflow-command framing** — fatal errors under `GITHUB_ACTIONS=true` are *also* emitted as `::error title=stratos (exit N)::…` so they surface inline on PR/run pages.
+- **`--dry-run` symmetry on every destructive op** — `zones rm`, `tokens rm`, `webhooks rm`, `storage rm` now all accept `--dry-run` (matching the existing `purge` and `storage sync` behaviour).
+- **Asciinema casts** — `docs/casts/{version,health,purge,signed,doctor}.{cast,gif}` rendered with [agg](https://github.com/asciinema/agg). Embedded in the README under Quick Start. Regenerate with `node scripts/make-casts.mjs --render`.
+
+### Changed
+
+- **MCP protocol bumped** from `2024-11-05` to the stable `2025-11-25` spec. The `2026-07-28` release candidate (Resources, Prompts, Tasks, Elicitation) is queued for v0.0.5 once it leaves RC.
+
 ## [0.0.2] — 2026-05-31
 
 A major DX and API-coverage upgrade. Stratos now covers ~30 commands across the

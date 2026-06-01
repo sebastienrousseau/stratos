@@ -75,6 +75,10 @@ Both shell installers verify a pinned SHA-256 of the script *before* writing it 
 
 ## Quick Start
 
+<p align="center">
+  <img src="docs/casts/health.gif" alt="stratos health" width="640" />
+</p>
+
 ```bash
 # Verify the install
 stratos version
@@ -93,6 +97,16 @@ stratos purge https://cloudcdn.pro/akande/v1/logos/logo.svg
 stratos purge --tag "build-${GITHUB_SHA}" --tag project-akande
 cat urls.txt | stratos purge -      # batch invalidate from stdin
 ```
+
+### In-terminal demos
+
+| Command | Cast |
+|---|---|
+| **`stratos purge --tag … --dry-run`** | <img src="docs/casts/purge.gif" alt="stratos purge dry-run" width="520" /> |
+| **`stratos signed …`** (offline HMAC mint) | <img src="docs/casts/signed.gif" alt="stratos signed" width="520" /> |
+| **`stratos doctor`** | <img src="docs/casts/doctor.gif" alt="stratos doctor" width="520" /> |
+
+> Re-record any cast with `node scripts/make-casts.mjs --render` — needs [`agg`](https://github.com/asciinema/agg) (`brew install agg`).
 
 ---
 
@@ -266,7 +280,9 @@ stratos logout             # clear all stratos secrets from the keychain
 
 ### Global options
 
-`--json` (force JSON), `-q` / `--quiet` (suppress info), `--verbose` (trace requests), `--profile <name>`, `--cdn-url <url>`, `--account-key <key>`, `--access-key <key>`, `--timeout <ms>`, `--retries <n>`.
+`--json` (force JSON), `--no-json` (opt out of CI auto-JSON), `-q` / `--quiet` (suppress info), `--no-quiet` (opt out of CI auto-quiet), `--verbose` (trace requests), `--profile <name>`, `--cdn-url <url>`, `--account-key <key>`, `--access-key <key>`, `--timeout <ms>`, `--retries <n>`.
+
+When CI is detected (`GITHUB_ACTIONS`, `GITLAB_CI`, `CIRCLECI`, `JENKINS_URL`, `TF_BUILD`, or `CI=true`), Stratos auto-enables `--json --quiet` and, on GitHub Actions, emits `::error::` workflow commands on non-zero exit so failures surface inline on PR/run pages. Override with `STRATOS_CI=0`.
 
 Run `stratos <command> --help` for per-command detail.
 

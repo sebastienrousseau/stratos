@@ -1,0 +1,9 @@
+{"version":2,"width":92,"height":18,"timestamp":1717228800,"env":{"SHELL":"/bin/zsh","TERM":"xterm-256color"},"title":"stratos signed (offline HMAC)"}
+[0.4,"o","\u001b[32m❯\u001b[0m "]
+[1.2,"o","export SIGNED_URL_SECRET=cdnsk_xxxxxxxxxxxxxxx\r\n"]
+[1.6,"o","\u001b[32m❯\u001b[0m "]
+[2.6,"o","stratos signed /clients/akande/preview.pdf --expires 1717232400\r\n"]
+[3,"o","https://cloudcdn.pro/api/signed?path=%2Fclients%2Fakande%2Fpreview.pdf&"]
+[3,"o","expires=1717232400&sig=4d3b1f8a9c7e2d6b5a4f3e2d1c8b9a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b\r\n"]
+[3.4,"o","\u001b[32m❯\u001b[0m "]
+[4.4,"o",""]

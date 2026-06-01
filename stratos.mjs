@@ -152,23 +152,63 @@ function warn(m)   { diag(`${c.yellow('warning:')} ${m}`); }
 /**
  * Print a fatal error to stderr and exit the process with the given code.
  *
+ * When running inside GitHub Actions (detected by {@link detectCI}'s
+ * `host === 'github'`) the message is *also* emitted as a workflow
+ * command (`::error::…`) so the failure surfaces inline on the PR/run
+ * page and annotates the line that triggered it.
+ *
  * @param {string} m              - Error message.
  * @param {number} [code=EX.SOFTWARE] - Sysexits-style exit code.
  * @returns {never}
  */
 function fatal(m, code = EX.SOFTWARE) {
   diag(`${c.red('error:')}   ${m}`);
+  if (FLAGS_GLOBAL.ciHost === 'github') {
+    // Newlines inside the message confuse the workflow-command parser;
+    // collapse them to space.
+    const oneLine = m.replace(/\s+/g, ' ').trim();
+    diag(`::error title=stratos (exit ${code})::${oneLine}`);
+  }
   process.exit(code);
 }
 
 /**
- * Mutable global flag state observed by `info()` / `warn()` / `emit()`.
- * Set once in `applyGlobalFlags()` near the top of `main()` so we don't
- * have to thread `--quiet` / `--verbose` / `--json` through every function.
+ * Mutable global flag state observed by `info()` / `warn()` / `emit()`
+ * / `fatal()`. Set once in `applyGlobalFlags()` near the top of
+ * `main()` so we don't have to thread `--quiet` / `--verbose` /
+ * `--json` through every function.
  *
- * @type {{ quiet: boolean, verbose: number, json: boolean }}
+ * `ciHost` is populated by {@link detectCI} and used by {@link fatal}
+ * to emit host-specific failure annotations.
+ *
+ * @type {{ quiet: boolean, verbose: number, json: boolean, ciHost: string|null }}
  */
-const FLAGS_GLOBAL = { quiet: false, verbose: 0, json: false };
+const FLAGS_GLOBAL = { quiet: false, verbose: 0, json: false, ciHost: null };
+
+/**
+ * Detect whether the current process is running inside a CI environment
+ * and, if so, which provider. Used by {@link applyGlobalFlags} to
+ * auto-enable machine-friendly defaults (`--json --quiet`) and by
+ * {@link fatal} to emit provider-specific failure annotations.
+ *
+ * Honours `STRATOS_CI=0` as an explicit override (e.g. when running
+ * Stratos *from* a CI agent's `bash -i` shell where the auto-defaults
+ * would be wrong).
+ *
+ * @returns {{ ci: boolean, host: 'github'|'gitlab'|'circleci'|'jenkins'|'azure'|'generic'|null }}
+ */
+function detectCI() {
+  if (process.env.STRATOS_CI === '0') return { ci: false, host: null };
+  if (process.env.STRATOS_CI === '1') return { ci: true, host: 'generic' };
+  if (process.env.GITHUB_ACTIONS === 'true') return { ci: true, host: 'github' };
+  if (process.env.GITLAB_CI === 'true')      return { ci: true, host: 'gitlab' };
+  if (process.env.CIRCLECI === 'true')       return { ci: true, host: 'circleci' };
+  if (process.env.JENKINS_URL)               return { ci: true, host: 'jenkins' };
+  if (process.env.TF_BUILD === 'True')       return { ci: true, host: 'azure' };
+  if (process.env.CI === 'true' || process.env.CI === '1')
+    return { ci: true, host: 'generic' };
+  return { ci: false, host: null };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Argument parsing.
@@ -957,12 +997,7 @@ function cmdHelp(rest) {
 function cmdCompletion(rest) {
   const shell = rest[0];
   if (!shell) fatal('completion needs a shell name (bash|zsh|fish|powershell).', EX.USAGE);
-  const COMMANDS = [
-    'version','help','health','purge','signed','assets','insights','stats','analytics',
-    'audit','zones','rules','tokens','webhooks','storage','logs','ai','image','stream',
-    'pipeline','search','ask','passkey','config','mcp','completion','upgrade',
-    'login','logout','doctor','bench',
-  ];
+  const COMMANDS = KNOWN_COMMANDS;
   const list = COMMANDS.join(' ');
   switch (shell) {
     case 'bash':
@@ -1731,6 +1766,10 @@ async function cmdZones(positional, flags) {
     case 'delete': {
       const id = positional[1];
       if (!id) fatal('zones rm <id>', EX.USAGE);
+      if (flags['dry-run']) {
+        emit({ dry_run: true, would_send: { method: 'DELETE', path: `/api/core/zones/${id}` } });
+        return;
+      }
       if (!flags.force && isTTY()) {
         info(`Pass --force to confirm deletion of zone ${id}.`);
         process.exit(EX.USAGE);
@@ -1919,6 +1958,10 @@ async function cmdTokens(positional, flags) {
     case 'delete': {
       const id = positional[1];
       if (!id) fatal('tokens rm <id>', EX.USAGE);
+      if (flags['dry-run']) {
+        emit({ dry_run: true, would_send: { method: 'DELETE', path: `/api/tokens?id=${id}` } });
+        return;
+      }
       const { ok, status, body } = await jsonReq('/api/tokens?id=' + encodeURIComponent(id), {
         method: 'DELETE', flags,
       }, { role: 'control' });
@@ -1974,6 +2017,10 @@ async function cmdWebhooks(positional, flags) {
     case 'delete': {
       const id = positional[1];
       if (!id) fatal('webhooks rm <id>', EX.USAGE);
+      if (flags['dry-run']) {
+        emit({ dry_run: true, would_send: { method: 'DELETE', path: `/api/webhooks?id=${id}` } });
+        return;
+      }
       const { ok, status, body } = await jsonReq('/api/webhooks?id=' + encodeURIComponent(id), {
         method: 'DELETE', flags,
       }, { role: 'control' });
@@ -2064,6 +2111,10 @@ async function storageGet(remote, local, flags) {
  */
 async function storageRm(remote, flags) {
   if (!remote) fatal('storage rm <remote>', EX.USAGE);
+  if (flags['dry-run']) {
+    emit({ dry_run: true, would_send: { method: 'DELETE', path: `/api/storage/${remote}` } });
+    return;
+  }
   const { ok, status, body } = await jsonReq('/api/storage/' + encodeRemotePath(remote), {
     method: 'DELETE', flags,
   }, { role: 'control' });
@@ -2546,7 +2597,9 @@ async function cmdMcpServe() {
     try {
       if (method === 'initialize') {
         send({ jsonrpc: '2.0', id, result: {
-          protocolVersion: '2024-11-05',
+          // Stable MCP spec (2026-07-28 RC is on the v0.0.5 roadmap once
+          // it leaves release-candidate status).
+          protocolVersion: '2025-11-25',
           serverInfo: { name: 'stratos', version: VERSION },
           capabilities: { tools: {} },
         }});
@@ -2576,15 +2629,34 @@ async function cmdMcpServe() {
 // ─────────────────────────────────────────────────────────────────────────────
 /**
  * Mirror selected per-command flags into {@link FLAGS_GLOBAL} so output
- * helpers (`info`, `emit`) can honour them without explicit threading.
+ * helpers (`info`, `emit`, `fatal`) can honour them without explicit
+ * threading.
+ *
+ * CI auto-mode: when {@link detectCI} reports a CI host and the user
+ * hasn't explicitly passed `--json` / `--quiet`, both are enabled so
+ * pipelines and log scrapers get machine-friendly output by default.
+ * Set `STRATOS_CI=0` to opt out.
  *
  * @param {Object} flags - Parsed CLI flags from {@link parseFlags}.
  * @returns {void}
  */
 function applyGlobalFlags(flags) {
-  if (flags.quiet) FLAGS_GLOBAL.quiet = true;
+  const { ci, host } = detectCI();
+  FLAGS_GLOBAL.ciHost = host;
+
+  // CI auto-defaults — only apply when the user didn't explicitly set
+  // the opposite flag.
+  if (ci) {
+    if (!flags['no-json']  && flags.json  === undefined) FLAGS_GLOBAL.json  = true;
+    if (!flags['no-quiet'] && flags.quiet === undefined) FLAGS_GLOBAL.quiet = true;
+  }
+
+  if (flags.quiet)  FLAGS_GLOBAL.quiet  = true;
   if (flags.verbose) FLAGS_GLOBAL.verbose = Number(flags.verbose) || 1;
-  if (flags.json) FLAGS_GLOBAL.json = true;
+  if (flags.json)   FLAGS_GLOBAL.json   = true;
+  // Explicit opt-outs from CI defaults.
+  if (flags['no-quiet']) FLAGS_GLOBAL.quiet = false;
+  if (flags['no-json'])  FLAGS_GLOBAL.json  = false;
 }
 
 /**
@@ -2646,10 +2718,75 @@ export async function main(argvOverride) {
     case 'search':      return cmdSearch(positional, flags);
     case 'ask':         return cmdAsk(positional, flags);
     case 'passkey':     return cmdPasskey(positional, flags);
-    default:
-      fatal(`unknown command: ${cmd}. Run "stratos help" for usage.`, EX.USAGE);
+    default: {
+      const suggestion = suggestCommand(cmd);
+      const hint = suggestion ? `\n        Did you mean "${suggestion}"?` : '';
+      fatal(`unknown command: ${cmd}.${hint}\n        Run "stratos help" for usage.`, EX.USAGE);
+    }
   }
 }
+
+/**
+ * Compute the Levenshtein distance between two strings. Used by
+ * {@link suggestCommand} to find the closest known command name when a
+ * user mistypes.
+ *
+ * @param {string} a - First string.
+ * @param {string} b - Second string.
+ * @returns {number} Edit distance (number of insertions / deletions /
+ *                   substitutions to transform `a` into `b`).
+ */
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    const curr = new Array(n + 1);
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    prev = curr;
+  }
+  return prev[n];
+}
+
+/**
+ * Suggest the closest known command name for a user typo. Returns the
+ * best match within an edit distance threshold (≤ 2 for short tokens,
+ * ≤ 3 for longer ones), or `null` if nothing is close enough.
+ *
+ * @param {string} input - The (presumed mistyped) command name.
+ * @returns {string|null} Closest known command, or `null`.
+ */
+function suggestCommand(input) {
+  if (!input || input.length < 2) return null;
+  const threshold = input.length <= 4 ? 2 : 3;
+  let best = null;
+  let bestDist = Infinity;
+  for (const cmd of KNOWN_COMMANDS) {
+    const d = levenshtein(input.toLowerCase(), cmd);
+    if (d < bestDist) { bestDist = d; best = cmd; }
+  }
+  return bestDist <= threshold ? best : null;
+}
+
+/**
+ * The complete list of known top-level commands. Kept here so {@link
+ * suggestCommand} and {@link cmdCompletion} share a single source of
+ * truth.
+ *
+ * @type {string[]}
+ */
+const KNOWN_COMMANDS = [
+  'version','help','health','purge','signed','assets','insights','stats','analytics',
+  'audit','zones','rules','tokens','webhooks','storage','logs','ai','image','stream',
+  'pipeline','search','ask','passkey','config','mcp','completion','upgrade',
+  'login','logout','doctor','bench',
+];
 
 // Exports for testing.
 export {
