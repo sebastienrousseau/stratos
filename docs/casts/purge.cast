@@ -1,0 +1,6 @@
+{"version":2,"width":92,"height":18,"timestamp":1717228800,"env":{"SHELL":"/bin/zsh","TERM":"xterm-256color"},"title":"stratos purge --tag … --dry-run"}
+[0.4,"o","\u001b[32m❯\u001b[0m "]
+[1.4,"o","stratos purge --tag build-abc1234 --tag project-akande --dry-run\r\n"]
+[1.8,"o","{\r\n  \"dry_run\": true,\r\n  \"would_send\": {\r\n    \"tags\": [\r\n      \"build-abc1234\",\r\n      \"project-akande\"\r\n    ]\r\n  }\r\n}\r\n"]
+[2.2,"o","\u001b[32m❯\u001b[0m "]
+[3.2,"o",""]

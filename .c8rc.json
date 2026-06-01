@@ -1,0 +1,10 @@
+{
+  "include": ["stratos.mjs"],
+  "exclude": ["test/**", "node_modules/**", "coverage/**"],
+  "reporter": ["text", "html", "lcov"],
+  "lines": 100,
+  "statements": 100,
+  "functions": 100,
+  "branches": 85,
+  "check-coverage": false
+}

@@ -24,8 +24,8 @@ SOURCE="$CDN_BASE/dist/stratos/stratos.mjs"
 # Expected SHA-256 of stratos.mjs as delivered. Matches the source file
 # in git verbatim — `curl -o` (used below) writes the response body
 # byte-for-byte. Bumped on each release.
-EXPECTED_SHA="98306c394345fc18b8610c0113e6ef94f071ceba47de0f07eb45a9204effaf27"
-VERSION="0.1.0"
+EXPECTED_SHA="41803dd361306b85baeb0cc1df1e0bb7c31d69190529c03ad5d91961fdb8d0ca"
+VERSION="0.0.3"
 
 # --- Styling ---
 if [ -t 1 ]; then
@@ -47,10 +47,10 @@ check_dep() {
 check_dep curl
 check_dep node
 
-# Node ≥ 18 (built-in fetch + crypto.subtle).
+# Node ≥ 20 (built-in fetch + crypto.subtle + AbortSignal.timeout).
 NODE_MAJOR=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
-if [ "$NODE_MAJOR" -lt 18 ]; then
-  log_error "Node ≥ 18 required (built-in fetch + crypto.subtle); detected v$NODE_MAJOR."
+if [ "$NODE_MAJOR" -lt 20 ]; then
+  log_error "Node ≥ 20 required; detected v$NODE_MAJOR."
   exit 1
 fi
 

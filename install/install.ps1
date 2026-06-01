@@ -23,8 +23,8 @@ $Source  = "$CdnBase/dist/stratos/stratos.mjs"
 # Expected SHA-256 of stratos.mjs as delivered. Matches the source file
 # in git verbatim — Invoke-WebRequest -OutFile writes the response body
 # byte-for-byte. Bumped on each release.
-$ExpectedSha = '98306c394345fc18b8610c0113e6ef94f071ceba47de0f07eb45a9204effaf27'
-$Version = '0.1.0'
+$ExpectedSha = '41803dd361306b85baeb0cc1df1e0bb7c31d69190529c03ad5d91961fdb8d0ca'
+$Version = '0.0.3'
 
 function Log-Info    ($m) { Write-Host "info: $m"    -ForegroundColor Blue }
 function Log-Success ($m) { Write-Host "success: $m" -ForegroundColor Green }
@@ -37,8 +37,8 @@ if (-not $node) {
   exit 1
 }
 $nodeMajor = (& node -v).TrimStart('v').Split('.')[0]
-if ([int]$nodeMajor -lt 18) {
-  Log-Error "Node ≥ 18 required (built-in fetch + crypto.subtle); detected v$nodeMajor."
+if ([int]$nodeMajor -lt 20) {
+  Log-Error "Node ≥ 20 required; detected v$nodeMajor."
   exit 1
 }
 

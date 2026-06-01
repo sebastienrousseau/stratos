@@ -1,0 +1,6 @@
+{"version":2,"width":92,"height":18,"timestamp":1717228800,"env":{"SHELL":"/bin/zsh","TERM":"xterm-256color"},"title":"stratos health"}
+[0.4,"o","\u001b[32m❯\u001b[0m "]
+[1.1,"o","stratos health\r\n"]
+[1.5,"o","{\r\n  \"status\": \"ok\",\r\n  \"bindings\": {\r\n    \"ai\": true,\r\n    \"kv\": true,\r\n    \"d1\": true,\r\n    \"r2\": true\r\n  }\r\n}\r\n"]
+[1.9,"o","\u001b[32m❯\u001b[0m "]
+[2.9,"o",""]

@@ -11,3 +11,5 @@ coverage/
 *.swo
 .vscode/
 .idea/
+.coverage-tmp/
+coverage/
