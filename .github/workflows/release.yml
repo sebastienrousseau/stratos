@@ -50,6 +50,9 @@ jobs:
           npm install -g npm@latest
           npm --version
 
+      - name: Install devDependencies
+        run: npm ci || npm install
+
       - name: Run tests
         env:
           STRATOS_NO_KEYCHAIN: '1'
@@ -63,11 +66,14 @@ jobs:
           ls -la dist/
 
       - name: Generate CycloneDX SBOM
+        # `--omit dev` keeps the published SBOM scoped to runtime
+        # dependencies (Stratos has zero) rather than dev-only ones.
         run: |
           npx --yes @cyclonedx/cyclonedx-npm \
             --output-format JSON \
             --output-file dist/sbom.cyclonedx.json \
-            --spec-version 1.6
+            --spec-version 1.6 \
+            --omit dev
           ls -la dist/
 
       - name: Compute SHA256SUMS
