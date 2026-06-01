@@ -24,8 +24,8 @@ SOURCE="$CDN_BASE/dist/stratos/stratos.mjs"
 # Expected SHA-256 of stratos.mjs as delivered. Matches the source file
 # in git verbatim — `curl -o` (used below) writes the response body
 # byte-for-byte. Bumped on each release.
-EXPECTED_SHA="41803dd361306b85baeb0cc1df1e0bb7c31d69190529c03ad5d91961fdb8d0ca"
-VERSION="0.0.3"
+EXPECTED_SHA="84f0ec85f7fa143862c16176bc54208c188b2af531c9e723ca5e4443b3582a11"
+VERSION="0.0.4"
 
 # --- Styling ---
 if [ -t 1 ]; then
@@ -112,8 +112,19 @@ chmod 0755 "$PREFIX/stratos"
 
 log_success "Stratos v$VERSION installed at $PREFIX/stratos"
 
+# --- Optional: man page ---
+# Best-effort fetch of the gzipped man page from the GitHub release into
+# the user's local man directory. Failures are silent — the CLI works
+# without it.
+MAN_DIR="$(dirname "$PREFIX")/share/man/man1"
+MAN_SRC="https://github.com/sebastienrousseau/stratos/releases/download/v$VERSION/stratos.1.gz"
+if mkdir -p "$MAN_DIR" 2>/dev/null && \
+   curl -fsSL --connect-timeout 5 --retry 2 "$MAN_SRC" -o "$MAN_DIR/stratos.1.gz" 2>/dev/null; then
+  log_info "Installed man page at $MAN_DIR/stratos.1.gz (try: man stratos)"
+fi
+
 case ":$PATH:" in
   *":$PREFIX:"*) ;;
   *) log_info "$PREFIX is not on PATH. Add 'export PATH=\"\$PATH:$PREFIX\"' to your shell rc." ;;
 esac
-log_info "Try: stratos version  /  stratos help"
+log_info "Try: stratos version  /  stratos help  /  stratos doctor"

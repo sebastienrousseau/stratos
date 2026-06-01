@@ -31,7 +31,7 @@
 - [Why a single-file CLI?](#why-a-single-file-cli)
 
 **Reference**
-- [Capabilities in v0.0.3](#capabilities-in-v003)
+- [Capabilities in v0.0.4](#capabilities-in-v003)
 - [Authentication & profiles](#authentication--profiles)
 - [Commands](#commands)
 - [Programmatic API](#programmatic-api)
@@ -57,6 +57,7 @@ Stratos ships as one ES module (`stratos.mjs`, ~2,669 lines, **zero runtime depe
 | Channel | Command |
 |---|---|
 | **npm** *(recommended)* | `npm install -g @cloudcdn/stratos` |
+| **Single binary** *(no Node required)* | Download from [the latest release](https://github.com/sebastienrousseau/stratos/releases/latest) — `stratos-{linux-x64,linux-arm64,darwin-x64,darwin-arm64,win-x64.exe}`. Compiled with Bun; ~58 MB, ~20 ms cold start. |
 | **macOS / Linux installer** | `curl -sL https://cloudcdn.pro/dist/stratos/install.sh \| bash` |
 | **Windows (PowerShell)** | `irm https://cloudcdn.pro/dist/stratos/install.ps1 \| iex` |
 | **From source** | `git clone https://github.com/sebastienrousseau/stratos && cd stratos && node stratos.mjs help` |
@@ -82,7 +83,7 @@ Both shell installers verify a pinned SHA-256 of the script *before* writing it 
 ```bash
 # Verify the install
 stratos version
-# → stratos v0.0.3
+# → stratos v0.0.4
 
 # Hit the public health endpoint
 stratos health
@@ -126,7 +127,7 @@ If those trade-offs match what you need, read on. If you'd prefer a richer SDK w
 
 ---
 
-## Capabilities in v0.0.3
+## Capabilities in v0.0.4
 
 Stratos covers ~30 commands across the full CloudCDN platform, grouped by concern.
 
@@ -270,13 +271,15 @@ stratos logout             # clear all stratos secrets from the keychain
 
 | Command | What it does |
 |---|---|
+| `init` | Interactive first-run setup; scriptable via flags |
 | `completion <bash\|zsh\|fish\|powershell>` | Emit completion script |
 | `upgrade` | Re-run the latest pinned installer |
-| `config get \| set \| list` | Profile management |
+| `config get \| set \| list \| edit` | Profile management; `edit` opens `$EDITOR` |
 | `login` / `login status` / `logout` | Store keys in the OS keychain |
 | `doctor` | Diagnose env, credentials, network |
 | `bench [-n N]` | Cold-start + N latency samples |
-| `mcp serve` | Run as an MCP server over stdio |
+| `explain <code\|status>` | Cause + fix for an exit code or HTTP status |
+| `mcp serve` | Run as an MCP server over stdio (10 tools, 6 resources, 4 prompts) |
 
 ### Global options
 

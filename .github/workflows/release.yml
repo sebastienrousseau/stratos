@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: MIT
 #
 # Publishes to npm with Sigstore provenance when a v* tag lands on main.
-# Also attaches SHA256SUMS + provenance attestation to the GitHub release.
+# Also produces single-binary builds for linux-x64/arm64, darwin-x64/arm64,
+# and win-x64, plus a CycloneDX SBOM, attaches everything to the GitHub
+# release, and writes a man page into the release artefacts.
 #
-# Auth: npm Trusted Publishers (OIDC). No NPM_TOKEN secret is consumed —
-# npm CLI ≥ 11.5 exchanges the GitHub-Actions OIDC token for a short-lived
-# publish token, scoped to this repository + workflow path. Setup is on
-# the npm side at:
+# Auth: npm Trusted Publishers (OIDC). No NPM_TOKEN secret is consumed.
+# Setup is on the npm side at
 #   https://www.npmjs.com/package/@cloudcdn/stratos/access
 # Trusted Publisher → GitHub Actions → owner sebastienrousseau,
-# repo stratos, workflow .github/workflows/release.yml (env left blank).
+# repo stratos, workflow .github/workflows/release.yml, environment npm.
 
 name: release
 
@@ -20,15 +20,17 @@ on:
 
 permissions:
   contents: write
-  id-token: write   # required for OIDC + npm provenance
+  id-token: write   # OIDC + npm provenance + build provenance attestation
   attestations: write
 
-# Silence the GitHub-Actions Node 20 deprecation warning (forced cutover
-# on 2026-06-16) by opting every JS action into Node 24 now.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Publish to npm + push canonical artefacts (stratos.mjs, installers,
+  # SHA256SUMS, SBOM, man page) to the GitHub release.
+  # ───────────────────────────────────────────────────────────────────────────
   publish:
     runs-on: ubuntu-latest
     environment:
@@ -38,8 +40,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          # Node 24 ships npm 11.x which has native OIDC trusted-publisher
-          # support; older Nodes need a manual `npm install -g npm@latest`.
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
@@ -47,9 +47,6 @@ jobs:
         run: |
           set -e
           npm --version
-          # npm 11.5+ is required for OIDC publishing without a token.
-          # The runner image's bundled npm may lag behind; upgrade just in
-          # case. This is a no-op when already current.
           npm install -g npm@latest
           npm --version
 
@@ -58,27 +55,92 @@ jobs:
           STRATOS_NO_KEYCHAIN: '1'
         run: npm test
 
+      - name: Generate man page
+        run: |
+          mkdir -p dist
+          node scripts/make-man.mjs > dist/stratos.1
+          gzip -k -9 dist/stratos.1
+          ls -la dist/
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          npx --yes @cyclonedx/cyclonedx-npm \
+            --output-format JSON \
+            --output-file dist/sbom.cyclonedx.json \
+            --spec-version 1.6
+          ls -la dist/
+
       - name: Compute SHA256SUMS
         run: |
-          sha256sum stratos.mjs install/install.sh install/install.ps1 > SHA256SUMS
+          sha256sum stratos.mjs install/install.sh install/install.ps1 \
+            dist/stratos.1.gz dist/sbom.cyclonedx.json > SHA256SUMS
           cat SHA256SUMS
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v1
         with:
-          subject-path: 'stratos.mjs'
+          subject-path: |
+            stratos.mjs
+            dist/sbom.cyclonedx.json
 
       - name: Publish to npm (OIDC + provenance)
-        # No NODE_AUTH_TOKEN. npm exchanges the GitHub OIDC token for a
-        # short-lived publish token against the trusted-publisher config
-        # registered on the package page.
         run: npm publish --provenance --access public
 
-      - name: Attach release artifacts
+      - name: Attach release artefacts
         uses: softprops/action-gh-release@v2
         with:
           files: |
             stratos.mjs
             install/install.sh
             install/install.ps1
+            dist/stratos.1
+            dist/stratos.1.gz
+            dist/sbom.cyclonedx.json
             SHA256SUMS
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Build self-contained binaries via Bun (`bun build --compile`).
+  # Cross-compiles from any host, so a single ubuntu-latest job produces every
+  # target. We still use a matrix for parallelism and per-OS smoke-testing of
+  # the native target.
+  # ───────────────────────────────────────────────────────────────────────────
+  binaries:
+    needs: publish
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest,  target: linux-x64,    out: stratos-linux-x64,    smoke: true }
+          - { runner: ubuntu-latest,  target: linux-arm64,  out: stratos-linux-arm64,  smoke: false }
+          - { runner: macos-latest,   target: darwin-arm64, out: stratos-darwin-arm64, smoke: true }
+          - { runner: macos-13,       target: darwin-x64,   out: stratos-darwin-x64,   smoke: true }
+          - { runner: windows-latest, target: win-x64,      out: stratos-win-x64.exe,  smoke: true }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build single-file binary (${{ matrix.target }})
+        shell: bash
+        run: node scripts/build-binary.mjs --target ${{ matrix.target }}
+
+      - name: Smoke (${{ matrix.target }})
+        if: matrix.smoke
+        shell: bash
+        run: ./${{ matrix.out }} version
+
+      - name: Attest binary build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: ${{ matrix.out }}
+
+      - name: Attach binary to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.out }}

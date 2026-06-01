@@ -9,8 +9,9 @@ has accumulated genuine community traction.
 
 | Version | Supported |
 |---------|-----------|
-| 0.0.3   | ✅        |
-| 0.0.2   | ⚠️ (superseded by 0.0.3; functional but missing CI auto-mode + dry-run on destructive ops) |
+| 0.0.4   | ✅        |
+| 0.0.3   | ⚠️ (superseded; missing `explain` / `init` / MCP Resources & Prompts / single-binary builds) |
+| 0.0.2   | ❌ (please upgrade) |
 | 0.0.1   | ❌ (please upgrade — multi-tag purge bug, no fetch timeout) |
 
 ## Reporting a vulnerability
