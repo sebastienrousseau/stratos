@@ -9,7 +9,7 @@ const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'stratos.mjs');
 
 function run(args, env = {}) {
   return spawnSync(process.execPath, [CLI, ...args], {
-    env: { ...process.env, ...env, NO_COLOR: '1' },
+    env: { ...process.env, STRATOS_CI: '0', ...env, NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' },
     encoding: 'utf8',
   });
 }

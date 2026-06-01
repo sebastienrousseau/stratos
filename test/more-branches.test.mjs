@@ -26,9 +26,10 @@ function withServer(handler, fn) {
 }
 
 function runClean(args, env = {}) {
-  const baseEnv = { ...process.env, NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' };
+  const baseEnv = { ...process.env, STRATOS_CI: '0', NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' };
   ['CLOUDCDN_URL','CLOUDCDN_ACCOUNT_KEY','CLOUDCDN_ACCESS_KEY','SIGNED_URL_SECRET',
-   'CLOUDCDN_TIMEOUT','CLOUDCDN_RETRIES','STRATOS_PROFILE'].forEach((k) => delete baseEnv[k]);
+   'CLOUDCDN_TIMEOUT','CLOUDCDN_RETRIES','STRATOS_PROFILE',
+   'GITHUB_ACTIONS','GITLAB_CI','CIRCLECI','JENKINS_URL','TF_BUILD','CI'].forEach((k) => delete baseEnv[k]);
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args],
       { env: { ...baseEnv, ...env } });
@@ -211,7 +212,7 @@ test('insights: "geography" alias for "geo"', async () => {
 function driveMcp(messages, env = {}, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, 'mcp', 'serve'],
-      { env: { ...process.env, ...env, NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' } });
+      { env: { ...process.env, STRATOS_CI: '0', ...env, NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' } });
     let stdout = ''; let stderr = '';
     child.stdout.on('data', (d) => stdout += d);
     child.stderr.on('data', (d) => stderr += d);

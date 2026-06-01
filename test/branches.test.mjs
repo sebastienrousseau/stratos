@@ -26,10 +26,10 @@ function withServer(handler, fn) {
 }
 
 function runAsync(args, env = {}, opts = {}) {
-  // IMPORTANT: clear inherited CLOUDCDN_* env vars by default so each test
-  // can control its own configuration source. Tests must set CLOUDCDN_URL
-  // explicitly via env if they want it.
-  const baseEnv = { ...process.env, NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' };
+  // IMPORTANT: clear inherited CLOUDCDN_* and CI env vars by default so
+  // each test can control its own configuration source. Tests must set
+  // CLOUDCDN_URL / GITHUB_ACTIONS / etc. explicitly via env if they want it.
+  const baseEnv = { ...process.env, STRATOS_CI: '0', NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' };
   delete baseEnv.CLOUDCDN_URL;
   delete baseEnv.CLOUDCDN_ACCOUNT_KEY;
   delete baseEnv.CLOUDCDN_ACCESS_KEY;
@@ -37,6 +37,12 @@ function runAsync(args, env = {}, opts = {}) {
   delete baseEnv.CLOUDCDN_TIMEOUT;
   delete baseEnv.CLOUDCDN_RETRIES;
   delete baseEnv.STRATOS_PROFILE;
+  delete baseEnv.GITHUB_ACTIONS;
+  delete baseEnv.GITLAB_CI;
+  delete baseEnv.CIRCLECI;
+  delete baseEnv.JENKINS_URL;
+  delete baseEnv.TF_BUILD;
+  delete baseEnv.CI;
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args],
       { env: { ...baseEnv, ...env } });

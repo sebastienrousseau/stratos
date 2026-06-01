@@ -29,7 +29,7 @@ function withServer(handler, fn) {
 function runAsync(args, env = {}, opts = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args],
-      { env: { ...process.env, ...env, NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' } });
+      { env: { ...process.env, STRATOS_CI: '0', ...env, NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' } });
     let stdout = ''; let stderr = '';
     child.stdout.on('data', (d) => stdout += d);
     child.stderr.on('data', (d) => stderr += d);
@@ -1086,7 +1086,7 @@ test('passkey: stub exits EX_UNAVAILABLE with dashboard URL', async () => {
 function driveMcp(messages, env = {}, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, 'mcp', 'serve'],
-      { env: { ...process.env, ...env, NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' } });
+      { env: { ...process.env, STRATOS_CI: '0', ...env, NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' } });
     let stdout = ''; let stderr = '';
     child.stdout.on('data', (d) => stdout += d);
     child.stderr.on('data', (d) => stderr += d);

@@ -7,7 +7,8 @@ import { dirname, join } from 'node:path';
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'stratos.mjs');
 const run = (args, env = {}) => spawnSync(process.execPath, [CLI, ...args],
-  { env: { ...process.env, ...env, NO_COLOR: '1' }, encoding: 'utf8' });
+  { env: { ...process.env, STRATOS_CI: '0', ...env, NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' },
+    encoding: 'utf8' });
 
 test('router: version prints v0.0.3', () => {
   const r = run(['version']);
@@ -60,7 +61,8 @@ test('purge: dry-run with --everything', () => {
 
 test('purge: dry-run with stdin URLs', () => {
   const r = spawnSync(process.execPath, [CLI, 'purge', '-', '--dry-run'],
-    { env: { ...process.env, NO_COLOR: '1' }, encoding: 'utf8',
+    { env: { ...process.env, STRATOS_CI: '0', NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' },
+      encoding: 'utf8',
       input: 'https://cloudcdn.pro/a\nhttps://cloudcdn.pro/b\n' });
   const body = JSON.parse(r.stdout);
   assert.deepEqual(body.would_send.urls, ['https://cloudcdn.pro/a', 'https://cloudcdn.pro/b']);

@@ -29,7 +29,7 @@ function withServer(handler, fn) {
 function runAsync(args, env = {}, opts = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args],
-      { env: { ...process.env, ...env, NO_COLOR: '1' } });
+      { env: { ...process.env, STRATOS_CI: '0', ...env, NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' } });
     let stdout = ''; let stderr = '';
     child.stdout.on('data', (d) => stdout += d);
     child.stderr.on('data', (d) => stderr += d);

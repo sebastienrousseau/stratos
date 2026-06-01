@@ -14,7 +14,7 @@ const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'stratos.mjs');
 function drive(messages, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, 'mcp', 'serve'],
-      { env: { ...process.env, NO_COLOR: '1' } });
+      { env: { ...process.env, STRATOS_CI: '0', NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' } });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => { stdout += d; });
