@@ -696,11 +696,14 @@ jobs:
           }
           case "${CHANNEL}" in
             npm)
-              # Use the npm-config bin prefix so we don't depend on the runner's
-              # PATH containing the npm globals dir (the v0.0.10 smoke bug).
+              # Run the freshly-installed module directly via node instead of
+              # going through the symlink shim. `npm config get prefix` returned
+              # a path on Ubuntu runners that didn't actually contain the
+              # symlink (the v0.0.11 smoke bug). `node $(npm root -g)/.../stratos.mjs`
+              # is bulletproof: it points at the file npm just wrote to disk.
               retry 5 npm install -g "@cloudcdn/stratos@${VERSION}"
-              NPM_BIN="$(npm config get prefix)/bin"
-              got="$("${NPM_BIN}/stratos" version)"
+              NPM_ROOT="$(npm root -g)"
+              got="$(node "${NPM_ROOT}/@cloudcdn/stratos/stratos.mjs" version)"
               ;;
             binary-linux-x64)
               curl -fsSL -o stratos \

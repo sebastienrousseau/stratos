@@ -18,13 +18,18 @@
 $ErrorActionPreference = 'Stop'
 
 # --- Configuration ---
-$CdnBase = if ($env:CLOUDCDN_URL) { $env:CLOUDCDN_URL } else { 'https://cloudcdn.pro' }
-$Source  = "$CdnBase/dist/stratos/stratos.mjs"
+$Version = '0.0.12'
+# Default to the GitHub release asset — canonical, signed, immutable
+# per-tag. CLOUDCDN_URL lets power users override with their own CDN.
+$Source = if ($env:CLOUDCDN_URL) {
+  $env:CLOUDCDN_URL
+} else {
+  "https://github.com/sebastienrousseau/stratos/releases/download/v$Version/stratos.mjs"
+}
 # Expected SHA-256 of stratos.mjs as delivered. Matches the source file
 # in git verbatim — Invoke-WebRequest -OutFile writes the response body
 # byte-for-byte. Bumped on each release.
-$ExpectedSha = '48a1740f07be430983bb2005fbbb6ba8ed487c771bbb968f1549363e1028ff8f'
-$Version = '0.0.11'
+$ExpectedSha = '781fd3e6618b4b42f26a9676adff9336d338f1b94439de8688c4bc936db993a5'
 
 function Log-Info    ($m) { Write-Host "info: $m"    -ForegroundColor Blue }
 function Log-Success ($m) { Write-Host "success: $m" -ForegroundColor Green }

@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.12] — 2026-06-02
+
+### Fixed
+
+- **`smoke-verify (npm)` was the last false-failure cell.** v0.0.11's `$(npm config get prefix)/bin/stratos` returned a path that didn't actually contain the symlink on Ubuntu runners — `got:` came back empty. Rewritten to run the just-installed `stratos.mjs` directly via `node "$(npm root -g)/@cloudcdn/stratos/stratos.mjs" version`. Points at the file npm wrote to disk; no PATH / symlink dependency.
+- **`install.sh` and `install.ps1` now default to the GitHub Release URL** (`https://github.com/sebastienrousseau/stratos/releases/download/v<version>/stratos.mjs`) instead of `https://cloudcdn.pro/dist/stratos/stratos.mjs`. The CDN is now opt-in via the `CLOUDCDN_URL` env var. The GH release is canonical (signed by the release workflow, immutable per-tag, SLSA L3 attested) and removes the dependency on a separate `cdn-sync` step having credentials configured. The `smoke-verify (install-sh)` fallback that worked around the stale CDN can be removed in v0.0.13.
+
 ## [0.0.11] — 2026-06-02
 
 ### Added — validation hardening
@@ -278,6 +285,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.12]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.12
 [0.0.11]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.11
 [0.0.10]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.10
 [0.0.9]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.9

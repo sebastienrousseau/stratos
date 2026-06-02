@@ -1,6 +1,6 @@
 {
   "name": "@cloudcdn/stratos",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Official command-line client for CloudCDN — full control plane in a single zero-dep Node script.",
   "type": "module",
   "main": "stratos.mjs",
