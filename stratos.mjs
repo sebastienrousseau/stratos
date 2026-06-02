@@ -23,7 +23,7 @@ import { homedir, platform } from 'node:os';
 import { resolve as resolvePath, join, dirname, basename, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 
 /**
@@ -33,7 +33,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *
  * @type {string}
  */
-const VERSION = '0.0.4';
+const VERSION = '0.0.5';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.
@@ -183,7 +183,14 @@ function fatal(m, code = EX.SOFTWARE) {
  *
  * @type {{ quiet: boolean, verbose: number, json: boolean, ciHost: string|null }}
  */
-const FLAGS_GLOBAL = { quiet: false, verbose: 0, json: false, ciHost: null };
+const FLAGS_GLOBAL = {
+  quiet: false, verbose: 0, json: false, ciHost: null,
+  output: null,   // 'json' | 'yaml' | 'csv' | 'table' | null (auto)
+  filter: null,   // jq expression
+  rate:   null,   // tokens/sec for the rate limiter (number or null)
+  otlp:   null,   // OTLP/HTTP traces endpoint URL or null
+  otlpHeaders: null, // { k: v } from --otlp-headers
+};
 
 /**
  * Detect whether the current process is running inside a CI environment
@@ -669,10 +676,17 @@ function httpErr(msg, code) { const e = new Error(msg); e.exitCode = code; retur
  * @returns {void}
  */
 function emit(body, status = 200) {
-  if (FLAGS_GLOBAL.json || !isTTY()) {
-    out(JSON.stringify(body, null, isTTY() ? 2 : 0));
+  const piped = applyFilter(body);
+  const fmt = pickOutputFormat();
+  if (fmt === 'json') {
+    out(JSON.stringify(piped, null, isTTY() ? 2 : 0));
+  } else if (fmt === 'yaml') {
+    out(toYaml(piped));
+  } else if (fmt === 'csv') {
+    out(toCsv(Array.isArray(piped) ? piped : [piped]));
   } else {
-    out(JSON.stringify(body, null, 2));
+    // Table-style emit for non-list bodies falls back to pretty JSON.
+    out(JSON.stringify(piped, null, 2));
   }
 }
 
@@ -751,11 +765,185 @@ function renderTable(rows, columns) {
  * @returns {void}
  */
 function emitList(rows, columns) {
-  if (FLAGS_GLOBAL.json || !isTTY()) {
-    out(JSON.stringify(rows, null, isTTY() ? 2 : 0));
+  const piped = applyFilter(rows);
+  const fmt = pickOutputFormat();
+  if (fmt === 'json') {
+    out(JSON.stringify(piped, null, isTTY() ? 2 : 0));
+  } else if (fmt === 'yaml') {
+    out(toYaml(piped));
+  } else if (fmt === 'csv') {
+    out(toCsv(Array.isArray(piped) ? piped : [piped]));
   } else {
-    renderTable(rows, columns);
+    renderTable(Array.isArray(piped) ? piped : [piped], columns);
   }
+}
+
+/**
+ * Resolve the effective output format from `--output`, `--json`, and TTY
+ * state. The user's explicit `--output` always wins; legacy `--json`
+ * stays a shortcut for `--output json`; absent both, list-shaped output
+ * defaults to a table on TTY and JSON on a pipe.
+ *
+ * @returns {'json'|'yaml'|'csv'|'table'}
+ */
+function pickOutputFormat() {
+  const o = FLAGS_GLOBAL.output;
+  if (o === 'json' || o === 'yaml' || o === 'csv' || o === 'table') return o;
+  if (FLAGS_GLOBAL.json) return 'json';
+  if (!isTTY()) return 'json';
+  return 'table';
+}
+
+/**
+ * Optional output filter. When `--filter <jq-expr>` is set, every body
+ * passed through `emit` / `emitList` is piped through `jq` and the
+ * parsed result substituted before serialisation. If `jq` isn't on
+ * `PATH`, exits with `EX_CONFIG` (the user asked for filtering but the
+ * tool is missing). If the expression is malformed, exits with
+ * `EX_DATAERR`.
+ *
+ * @param {any} body - Whatever the command was about to emit.
+ * @returns {any} The body, optionally filtered.
+ */
+function applyFilter(body) {
+  const expr = FLAGS_GLOBAL.filter;
+  if (!expr) return body;
+  const { spawnSync } = jqShim;
+  const r = spawnSync('jq', [expr], { input: JSON.stringify(body), encoding: 'utf8' });
+  /* c8 ignore next 3 -- depends on jq being absent; covered by manual QA */
+  if (r.error && r.error.code === 'ENOENT') {
+    fatal('--filter requires `jq` on PATH (https://stedolan.github.io/jq/).', EX.CONFIG);
+  }
+  if (r.status !== 0) {
+    fatal(`jq exited ${r.status}: ${r.stderr.trim()}`, EX.DATAERR);
+  }
+  try {
+    // jq emits one JSON value per output. For multi-output streams
+    // (e.g. `.foo[]`) we return an array of values.
+    const out = r.stdout.trim();
+    if (!out) return null;
+    const lines = out.split('\n').filter(Boolean);
+    if (lines.length === 1) return JSON.parse(lines[0]);
+    return lines.map((l) => JSON.parse(l));
+  /* c8 ignore start -- jq's JSON-only default emit means this branch is
+     only reached via `-r` / `@text` constructs we don't expose. */
+  } catch (e) {
+    fatal(`jq produced non-JSON output: ${e.message}`, EX.DATAERR);
+  }
+  /* c8 ignore stop */
+}
+
+/**
+ * Indirection point for `applyFilter`'s `spawnSync` dependency. Lifted
+ * out so the test suite can override the shim (e.g. to simulate jq
+ * being missing) without monkey-patching `node:child_process`.
+ *
+ * @type {{ spawnSync: typeof import('node:child_process').spawnSync }}
+ */
+const jqShim = { spawnSync };
+
+/**
+ * Serialise a JavaScript value as YAML. Handles the shapes Stratos
+ * actually emits — strings, numbers, booleans, null, plain objects,
+ * arrays — and is deliberately *not* a general-purpose YAML library.
+ * Strings are double-quoted when they contain anything that could be
+ * mistaken for YAML markup; otherwise they're emitted bare for
+ * readability.
+ *
+ * @param {any}    value           - Value to serialise.
+ * @param {number} [indent=0]      - Current indent depth (spaces).
+ * @returns {string} YAML text without a trailing newline.
+ */
+function toYaml(value, indent = 0) {
+  const pad = ' '.repeat(indent);
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'boolean' || typeof value === 'number') return String(value);
+  if (typeof value === 'string') return yamlScalarString(value);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]';
+    return value.map((v) => {
+      const rendered = toYaml(v, indent + 2);
+      const isBlock = typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length > 0;
+      return isBlock
+        ? `${pad}-\n${rendered.split('\n').map((l) => '  ' + l).join('\n')}`
+        : `${pad}- ${rendered}`;
+    }).join('\n');
+  }
+  if (typeof value === 'object') {
+    const keys = Object.keys(value);
+    if (keys.length === 0) return '{}';
+    return keys.map((k) => {
+      const v = value[k];
+      if (v === null || typeof v !== 'object' || Array.isArray(v) && v.length === 0) {
+        return `${pad}${k}: ${toYaml(v, indent + 2)}`;
+      }
+      const rendered = toYaml(v, indent + 2);
+      return `${pad}${k}:\n${rendered}`;
+    }).join('\n');
+  }
+  /* c8 ignore start -- non-JSON-shaped value (Symbol, BigInt, Function);
+     unreachable from any JSON body Stratos actually emits. */
+  return String(value);
+  /* c8 ignore stop */
+}
+
+/**
+ * Quote a string for safe YAML emission. Bare strings are returned
+ * unchanged when they would round-trip cleanly; everything else gets
+ * double-quoted with JSON-style escapes.
+ *
+ * @param {string} s - String to render.
+ * @returns {string} YAML scalar.
+ */
+function yamlScalarString(s) {
+  // YAML 1.2 reserved bare-scalar tokens that look like other types.
+  const reserved = /^(null|true|false|~|yes|no|on|off)$/i;
+  const tricky = /[:#\-?,&*!|>'"%@`{}\[\]\n]/;
+  if (s === '' || reserved.test(s) || tricky.test(s) || /^\s|\s$/.test(s) || /^-?\d+(\.\d+)?$/.test(s)) {
+    return JSON.stringify(s);
+  }
+  return s;
+}
+
+/**
+ * Serialise an array of plain objects as CSV. The header row is the
+ * union of keys (insertion order from the first row, then any new keys
+ * from later rows). Values are stringified; commas, quotes, and
+ * newlines are escaped per RFC 4180.
+ *
+ * @param {Array<Object>} rows - Records to emit.
+ * @returns {string} CSV text without a trailing newline.
+ */
+function toCsv(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return '';
+  const headers = [];
+  for (const r of rows) {
+    if (r && typeof r === 'object') {
+      for (const k of Object.keys(r)) if (!headers.includes(k)) headers.push(k);
+    }
+  }
+  if (headers.length === 0) return rows.map((r) => csvCell(r)).join('\n');
+  const lines = [headers.map(csvCell).join(',')];
+  for (const r of rows) {
+    lines.push(headers.map((h) => csvCell(r ? r[h] : '')).join(','));
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Escape a single CSV cell per RFC 4180: wrap in double-quotes when the
+ * value contains a comma, quote, or newline; double any embedded
+ * quotes.
+ *
+ * @param {any} v - Cell value.
+ * @returns {string} Escaped cell.
+ */
+function csvCell(v) {
+  if (v === undefined || v === null) return '';
+  if (typeof v === 'object') v = JSON.stringify(v);
+  const s = String(v);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -864,7 +1052,9 @@ ${c.bold('Pipeline & discovery')}
   logs query [--days N]       Historical log query.
 
 ${c.bold('Global options')}
-  --json                      Force JSON output.
+  --output <fmt>              json | yaml | csv | table  (default: auto).
+  --json                      Shortcut for --output json.
+  --filter <jq-expr>          Pipe output through jq (jq must be on PATH).
   --quiet | -q                Suppress info logs.
   --verbose                   Trace HTTP requests.
   --profile <name>            Select config profile.
@@ -873,6 +1063,9 @@ ${c.bold('Global options')}
   --access-key <key>          Override CLOUDCDN_ACCESS_KEY.
   --timeout <ms>              Per-request timeout (default 15000).
   --retries <n>               Max retries (default 3).
+  --rate <n>[/s]              Client-side rate limit for bulk operations.
+  --otlp-endpoint <url>       OTLP/HTTP traces endpoint (one span per command).
+  --otlp-headers k=v,k=v      Auth/extra headers for the OTLP exporter.
 
 ${c.bold('Environment')}
   CLOUDCDN_URL                Default https://cloudcdn.pro.
@@ -2443,8 +2636,10 @@ async function storageSync(localDir, remotePrefix, flags) {
   }
   // Batch up to 50 files per call into /api/storage/batch.
   const batches = chunk(files, 50);
+  const limiter = rateLimiter();
   let done = 0;
   for (const batch of batches) {
+    await limiter.acquire();
     const items = await Promise.all(batch.map(async (f) => {
       const rel = relative(root, f).replaceAll(sep, '/');
       const content = (await readFile(f)).toString('base64');
@@ -3106,7 +3301,164 @@ function applyGlobalFlags(flags) {
   // Explicit opt-outs from CI defaults.
   if (flags['no-quiet']) FLAGS_GLOBAL.quiet = false;
   if (flags['no-json'])  FLAGS_GLOBAL.json  = false;
+
+  // --output, --filter, --rate, --otlp-endpoint, --otlp-headers (and env-var fallbacks).
+  if (flags.output) {
+    const o = String(flags.output).toLowerCase();
+    if (!['json','yaml','csv','table'].includes(o)) fatal(`--output must be json|yaml|csv|table (got "${flags.output}")`, EX.USAGE);
+    FLAGS_GLOBAL.output = o;
+  }
+  if (flags.filter !== undefined) FLAGS_GLOBAL.filter = String(flags.filter);
+  if (flags.rate !== undefined) {
+    const m = String(flags.rate).match(/^(\d+(?:\.\d+)?)(?:\/s)?$/);
+    if (!m) fatal(`--rate must look like "10/s" or just "10" (got "${flags.rate}")`, EX.USAGE);
+    FLAGS_GLOBAL.rate = Number(m[1]);
+  }
+  const otlp = flags['otlp-endpoint'] || process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  if (otlp) FLAGS_GLOBAL.otlp = String(otlp).replace(/\/$/, '');
+  const otlpHdrs = flags['otlp-headers'] || process.env.OTEL_EXPORTER_OTLP_HEADERS;
+  if (otlpHdrs) FLAGS_GLOBAL.otlpHeaders = parseOtlpHeaders(String(otlpHdrs));
 }
+
+/**
+ * Parse `--otlp-headers k=v,k=v,…` (or the equivalent `OTEL_EXPORTER_OTLP_HEADERS`
+ * env-var form) into a plain headers object.
+ *
+ * Whitespace around keys and values is trimmed; entries without an `=`
+ * are silently dropped. Empty input yields `{}`.
+ *
+ * @param {string} raw - The comma-separated `k=v` string.
+ * @returns {Object<string, string>}
+ */
+function parseOtlpHeaders(raw) {
+  const out = {};
+  for (const pair of raw.split(',')) {
+    const eq = pair.indexOf('=');
+    if (eq < 0) continue;
+    const k = pair.slice(0, eq).trim();
+    const v = pair.slice(eq + 1).trim();
+    if (k) out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Generate `n` random hex bytes via `crypto.randomBytes`-equivalent.
+ * Used for OTLP trace + span ids.
+ *
+ * @param {number} n - Byte count.
+ * @returns {string} Lowercase hex.
+ */
+function randHex(n) {
+  const arr = new Uint8Array(n);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * POST a single OTLP/HTTP-JSON trace span to the configured endpoint.
+ * Best-effort: failures are logged at `info()` level under
+ * `--verbose` but never block the parent command's exit.
+ *
+ * The payload conforms to the OTLP/HTTP 1.4 protobuf-JSON encoding for
+ * a single `ResourceSpans` → `ScopeSpans` → `Span` triple. No SDK
+ * dependency — the body is constructed inline.
+ *
+ * @param {{ name: string, traceId: string, spanId: string, startNs: bigint, endNs: bigint, attributes: Object<string,any>, status?: { code: number, message?: string } }} span
+ * @returns {Promise<void>}
+ */
+async function otlpExportSpan(span) {
+  if (!FLAGS_GLOBAL.otlp) return;
+  const attrs = (obj) => Object.entries(obj || {}).map(([k, v]) => ({
+    key: k,
+    value: typeof v === 'number'
+      ? (Number.isInteger(v) ? { intValue: v } : { doubleValue: v })
+      : typeof v === 'boolean'
+        ? { boolValue: v }
+        : { stringValue: String(v) },
+  }));
+  const body = {
+    resourceSpans: [{
+      resource: { attributes: attrs({
+        'service.name': 'stratos',
+        'service.version': VERSION,
+        'telemetry.sdk.name': 'stratos.mjs',
+        'telemetry.sdk.language': 'nodejs',
+      }) },
+      scopeSpans: [{
+        scope: { name: 'stratos', version: VERSION },
+        spans: [{
+          traceId: span.traceId,
+          spanId: span.spanId,
+          name: span.name,
+          kind: 1, // SPAN_KIND_INTERNAL
+          startTimeUnixNano: span.startNs.toString(),
+          endTimeUnixNano: span.endNs.toString(),
+          attributes: attrs(span.attributes),
+          status: span.status || { code: 1 }, // STATUS_CODE_OK
+        }],
+      }],
+    }],
+  };
+  try {
+    const res = await fetch(FLAGS_GLOBAL.otlp + '/v1/traces', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(FLAGS_GLOBAL.otlpHeaders || {}) },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok && FLAGS_GLOBAL.verbose) {
+      info(`otlp: exporter HTTP ${res.status}`);
+    }
+  } catch (e) {
+    if (FLAGS_GLOBAL.verbose) info(`otlp: export failed: ${e.message}`);
+  }
+}
+
+/**
+ * A trivial leaky-token-bucket rate limiter for bulk command paths.
+ * Configured by `--rate <n>/s` at the CLI; commands that fan out
+ * (multi-URL purge, batched storage sync, batched AI calls) call
+ * `acquire()` before each unit of work. With no rate set, every
+ * `acquire()` is a no-op.
+ */
+class RateLimiter {
+  /**
+   * @param {number} perSec - Tokens per second; pass `0` to disable. Fractional
+   *                          rates (e.g. `0.5` = one call every two seconds)
+   *                          are honoured.
+   */
+  constructor(perSec) {
+    this.perSec = perSec;
+    this.intervalMs = perSec > 0 ? 1000 / perSec : 0;
+    this.nextAt = 0;
+  }
+
+  /**
+   * Block until a slot is available. Resolves immediately if the rate
+   * limiter is disabled. Uses a "next allowed time" model rather than a
+   * token bucket so fractional rates are handled correctly: with
+   * `perSec = 0.5`, the second call waits 2000 ms regardless of how
+   * many slots a bucket would have buffered.
+   *
+   * @returns {Promise<void>}
+   */
+  async acquire() {
+    if (!this.perSec || this.perSec <= 0) return;
+    const now = Date.now();
+    if (now < this.nextAt) await delay(this.nextAt - now);
+    this.nextAt = Math.max(now, this.nextAt) + this.intervalMs;
+  }
+}
+
+/**
+ * Convenience constructor for a global rate limiter using
+ * {@link FLAGS_GLOBAL.rate}. Returns a no-op limiter when `--rate`
+ * isn't set.
+ *
+ * @returns {RateLimiter}
+ */
+function rateLimiter() { return new RateLimiter(FLAGS_GLOBAL.rate || 0); }
 
 /**
  * Top-level CLI entry point. Resolves the command name, parses flags,
@@ -3137,6 +3489,54 @@ export async function main(argvOverride) {
   // Subcommand-level --help.
   if (flags.help) { cmdHelp([cmd]); return; }
 
+  // Start an OTel span for this command if --otlp-endpoint is set.
+  // Best-effort: spans for commands that call process.exit() directly
+  // are lost; spans for commands that return normally or throw uncaught
+  // are emitted via the finally block.
+  const otelStart = FLAGS_GLOBAL.otlp ? {
+    traceId: randHex(16),
+    spanId:  randHex(8),
+    startNs: BigInt(Date.now()) * 1_000_000n,
+  } : null;
+  let otelStatus = { code: 1 }; // STATUS_CODE_OK
+
+  try {
+    return await dispatch(cmd, positional, flags);
+  } catch (e) {
+    otelStatus = { code: 2, message: e && e.message ? e.message : String(e) };
+    throw e;
+  } finally {
+    if (otelStart) {
+      await otlpExportSpan({
+        name: `stratos ${cmd}`,
+        traceId: otelStart.traceId,
+        spanId:  otelStart.spanId,
+        startNs: otelStart.startNs,
+        endNs:   BigInt(Date.now()) * 1_000_000n,
+        attributes: {
+          'stratos.command':         cmd,
+          'stratos.version':         VERSION,
+          'stratos.argv.count':      argv.length,
+          'stratos.flags.output':    FLAGS_GLOBAL.output || '',
+          'stratos.flags.profile':   flags.profile || process.env.STRATOS_PROFILE || 'default',
+        },
+        status: otelStatus,
+      });
+    }
+  }
+}
+
+/**
+ * Dispatch to the command handler matching `cmd`. Extracted from
+ * `main` so the latter can wrap dispatch in OTel + error handling
+ * without indenting the entire switch.
+ *
+ * @param {string}   cmd        - Command name.
+ * @param {string[]} positional - Positional args after `cmd`.
+ * @param {Object}   flags      - Parsed CLI flags.
+ * @returns {Promise<void>}
+ */
+async function dispatch(cmd, positional, flags) {
   switch (cmd) {
     case 'completion':  cmdCompletion(positional); return;
     case 'upgrade':     return cmdUpgrade();

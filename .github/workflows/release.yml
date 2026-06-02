@@ -2,8 +2,10 @@
 #
 # Publishes to npm with Sigstore provenance when a v* tag lands on main.
 # Also produces single-binary builds for linux-x64/arm64, darwin-x64/arm64,
-# and win-x64, plus a CycloneDX SBOM, attaches everything to the GitHub
-# release, and writes a man page into the release artefacts.
+# and win-x64, plus a CycloneDX SBOM, a CycloneDX VEX statement, a man
+# page, a multi-arch Docker image, and a Homebrew formula. Attaches the
+# canonical artefacts to the GitHub release with rich notes extracted
+# from the CHANGELOG.
 #
 # Auth: npm Trusted Publishers (OIDC). No NPM_TOKEN secret is consumed.
 # Setup is on the npm side at
@@ -22,6 +24,7 @@ permissions:
   contents: write
   id-token: write   # OIDC + npm provenance + build provenance attestation
   attestations: write
+  packages: write   # ghcr.io push for the Docker image
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -29,7 +32,8 @@ env:
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
   # Publish to npm + push canonical artefacts (stratos.mjs, installers,
-  # SHA256SUMS, SBOM, man page) to the GitHub release.
+  # SHA256SUMS, SBOM, VEX, man page, Homebrew formula) to the GitHub release
+  # with body populated from the matching CHANGELOG.md section.
   # ───────────────────────────────────────────────────────────────────────────
   publish:
     runs-on: ubuntu-latest
@@ -58,12 +62,20 @@ jobs:
           STRATOS_NO_KEYCHAIN: '1'
         run: npm test
 
-      - name: Generate man page
+      - name: Extract release notes from CHANGELOG
+        id: notes
         run: |
           mkdir -p dist
+          VERSION="${GITHUB_REF_NAME#v}"
+          node scripts/extract-release-notes.mjs "$VERSION" > dist/release-notes.md
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "---"
+          head -40 dist/release-notes.md
+
+      - name: Generate man page
+        run: |
           node scripts/make-man.mjs > dist/stratos.1
           gzip -k -9 dist/stratos.1
-          ls -la dist/
 
       - name: Generate CycloneDX SBOM
         # `--omit dev` keeps the published SBOM scoped to runtime
@@ -74,12 +86,22 @@ jobs:
             --output-file dist/sbom.cyclonedx.json \
             --spec-version 1.6 \
             --omit dev
-          ls -la dist/
+
+      - name: Generate CycloneDX VEX
+        # A standalone VEX (Vulnerability Exploitability eXchange)
+        # statement asserting "no known affected vulnerabilities" for
+        # this build of @cloudcdn/stratos. Re-issued every release.
+        run: node scripts/make-vex.mjs "${{ steps.notes.outputs.version }}" > dist/vex.cyclonedx.json
+
+      - name: Generate Homebrew formula
+        run: |
+          node scripts/make-homebrew.mjs "${{ steps.notes.outputs.version }}" > dist/stratos.rb
 
       - name: Compute SHA256SUMS
         run: |
           sha256sum stratos.mjs install/install.sh install/install.ps1 \
-            dist/stratos.1.gz dist/sbom.cyclonedx.json > SHA256SUMS
+            dist/stratos.1.gz dist/sbom.cyclonedx.json dist/vex.cyclonedx.json \
+            dist/stratos.rb > SHA256SUMS
           cat SHA256SUMS
 
       - name: Attest build provenance
@@ -88,13 +110,16 @@ jobs:
           subject-path: |
             stratos.mjs
             dist/sbom.cyclonedx.json
+            dist/vex.cyclonedx.json
 
       - name: Publish to npm (OIDC + provenance)
         run: npm publish --provenance --access public
 
-      - name: Attach release artefacts
+      - name: Attach release artefacts + populate body
         uses: softprops/action-gh-release@v2
         with:
+          name: Stratos v${{ steps.notes.outputs.version }}
+          body_path: dist/release-notes.md
           files: |
             stratos.mjs
             install/install.sh
@@ -102,13 +127,12 @@ jobs:
             dist/stratos.1
             dist/stratos.1.gz
             dist/sbom.cyclonedx.json
+            dist/vex.cyclonedx.json
+            dist/stratos.rb
             SHA256SUMS
 
   # ───────────────────────────────────────────────────────────────────────────
   # Build self-contained binaries via Bun (`bun build --compile`).
-  # Cross-compiles from any host, so a single ubuntu-latest job produces every
-  # target. We still use a matrix for parallelism and per-OS smoke-testing of
-  # the native target.
   # ───────────────────────────────────────────────────────────────────────────
   binaries:
     needs: publish
@@ -150,3 +174,51 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.out }}
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Multi-arch Docker image. Published to ghcr.io under the repo owner's
+  # namespace; tagged with the version and `latest`.
+  # ───────────────────────────────────────────────────────────────────────────
+  docker:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/sebastienrousseau/stratos:${{ github.ref_name }}
+            ghcr.io/sebastienrousseau/stratos:${{ github.ref_name == 'main' && 'edge' || github.ref_name }}
+            ghcr.io/sebastienrousseau/stratos:latest
+          labels: |
+            org.opencontainers.image.title=stratos
+            org.opencontainers.image.description=Official CloudCDN CLI
+            org.opencontainers.image.source=https://github.com/sebastienrousseau/stratos
+            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.licenses=MIT
+
+      - name: Attest Docker image provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ghcr.io/sebastienrousseau/stratos
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
