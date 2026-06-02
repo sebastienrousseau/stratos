@@ -13,3 +13,5 @@ coverage/
 .idea/
 .coverage-tmp/
 coverage/
+dist/
+.claude/

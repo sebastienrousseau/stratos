@@ -97,11 +97,21 @@ jobs:
         run: |
           node scripts/make-homebrew.mjs "${{ steps.notes.outputs.version }}" > dist/stratos.rb
 
+      - name: Generate winget manifests
+        run: |
+          node scripts/make-winget.mjs "${{ steps.notes.outputs.version }}"
+          tar -C dist -czf dist/winget-manifests.tar.gz winget
+
+      - name: Generate Scoop manifest
+        run: |
+          node scripts/make-scoop.mjs "${{ steps.notes.outputs.version }}"
+
       - name: Compute SHA256SUMS
         run: |
           sha256sum stratos.mjs install/install.sh install/install.ps1 \
             dist/stratos.1.gz dist/sbom.cyclonedx.json dist/vex.cyclonedx.json \
-            dist/stratos.rb > SHA256SUMS
+            dist/stratos.rb dist/winget-manifests.tar.gz dist/stratos.scoop.json \
+            > SHA256SUMS
           cat SHA256SUMS
 
       - name: Attest build provenance
@@ -115,6 +125,28 @@ jobs:
       - name: Publish to npm (OIDC + provenance)
         run: npm publish --provenance --access public
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.4.1'
+
+      - name: Cosign keyless-sign canonical artefacts
+        # `--yes` consents to recording the certificate in the public
+        # Rekor transparency log (mandatory for keyless OIDC signing).
+        # COSIGN_EXPERIMENTAL=1 enables OIDC token exchange.
+        env:
+          COSIGN_EXPERIMENTAL: '1'
+        run: |
+          for f in stratos.mjs install/install.sh install/install.ps1 \
+                   dist/stratos.1.gz dist/sbom.cyclonedx.json \
+                   dist/vex.cyclonedx.json dist/stratos.rb; do
+            cosign sign-blob --yes \
+              --output-signature "${f}.sig" \
+              --output-certificate "${f}.crt" \
+              "${f}"
+          done
+          ls -la stratos.mjs.sig install/*.sig dist/*.sig
+
       - name: Attach release artefacts + populate body
         uses: softprops/action-gh-release@v2
         with:
@@ -122,13 +154,29 @@ jobs:
           body_path: dist/release-notes.md
           files: |
             stratos.mjs
+            stratos.mjs.sig
+            stratos.mjs.crt
             install/install.sh
+            install/install.sh.sig
+            install/install.sh.crt
             install/install.ps1
+            install/install.ps1.sig
+            install/install.ps1.crt
             dist/stratos.1
             dist/stratos.1.gz
+            dist/stratos.1.gz.sig
+            dist/stratos.1.gz.crt
             dist/sbom.cyclonedx.json
+            dist/sbom.cyclonedx.json.sig
+            dist/sbom.cyclonedx.json.crt
             dist/vex.cyclonedx.json
+            dist/vex.cyclonedx.json.sig
+            dist/vex.cyclonedx.json.crt
             dist/stratos.rb
+            dist/stratos.rb.sig
+            dist/stratos.rb.crt
+            dist/winget-manifests.tar.gz
+            dist/stratos.scoop.json
             SHA256SUMS
 
   # ───────────────────────────────────────────────────────────────────────────
@@ -170,10 +218,28 @@ jobs:
         with:
           subject-path: ${{ matrix.out }}
 
-      - name: Attach binary to release
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.4.1'
+
+      - name: Cosign keyless-sign the binary
+        env:
+          COSIGN_EXPERIMENTAL: '1'
+        shell: bash
+        run: |
+          cosign sign-blob --yes \
+            --output-signature "${{ matrix.out }}.sig" \
+            --output-certificate "${{ matrix.out }}.crt" \
+            "${{ matrix.out }}"
+
+      - name: Attach binary + signature to release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.out }}
+          files: |
+            ${{ matrix.out }}
+            ${{ matrix.out }}.sig
+            ${{ matrix.out }}.crt
 
   # ───────────────────────────────────────────────────────────────────────────
   # Multi-arch Docker image. Published to ghcr.io under the repo owner's
@@ -191,6 +257,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Strip v-prefix off the tag for Docker
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -206,14 +276,13 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/sebastienrousseau/stratos:${{ github.ref_name }}
-            ghcr.io/sebastienrousseau/stratos:${{ github.ref_name == 'main' && 'edge' || github.ref_name }}
+            ghcr.io/sebastienrousseau/stratos:${{ steps.ver.outputs.version }}
             ghcr.io/sebastienrousseau/stratos:latest
           labels: |
             org.opencontainers.image.title=stratos
             org.opencontainers.image.description=Official CloudCDN CLI
             org.opencontainers.image.source=https://github.com/sebastienrousseau/stratos
-            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.version=${{ steps.ver.outputs.version }}
             org.opencontainers.image.licenses=MIT
 
       - name: Attest Docker image provenance
@@ -222,3 +291,51 @@ jobs:
           subject-name: ghcr.io/sebastienrousseau/stratos
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Compute SHA-256 of every release asset, output as a base64-encoded subject
+  # list for the SLSA L3 generator.
+  # ───────────────────────────────────────────────────────────────────────────
+  hashes:
+    needs: [publish, binaries, docker]
+    runs-on: ubuntu-latest
+    outputs:
+      digests: ${{ steps.hash.outputs.digests }}
+    steps:
+      - name: Download every asset attached to this release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p artefacts
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --dir artefacts
+          ls -la artefacts
+
+      - name: Hash artefacts as base64-encoded subjects
+        id: hash
+        run: |
+          cd artefacts
+          # SHA256SUMS itself is a subject too; include everything except the
+          # provenance file we're about to generate.
+          DIGESTS="$(sha256sum * | base64 -w0)"
+          echo "digests=$DIGESTS" >> "$GITHUB_OUTPUT"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # SLSA L3 build provenance. Calls slsa-framework/slsa-github-generator's
+  # reusable workflow — runs in an isolated VM (build-isolation requirement),
+  # signs the in-toto attestation with Sigstore, publishes to Rekor, and
+  # uploads `multiple.intoto.jsonl` to the GitHub Release.
+  # ───────────────────────────────────────────────────────────────────────────
+  slsa:
+    needs: hashes
+    permissions:
+      actions: read       # required to read the workflow definition
+      id-token: write     # required for OIDC keyless signing
+      contents: write     # required to upload provenance to the release
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: ${{ needs.hashes.outputs.digests }}
+      provenance-name: stratos-${{ github.ref_name }}.intoto.jsonl
+      upload-assets: true
+      upload-tag-name: ${{ github.ref_name }}

@@ -33,7 +33,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *
  * @type {string}
  */
-const VERSION = '0.0.5';
+const VERSION = '0.0.6';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.
@@ -795,6 +795,21 @@ function pickOutputFormat() {
 }
 
 /**
+ * Whether the user has asked for structured (machine-readable) output —
+ * `--json`, or any `--output` other than the default `table`. Used by
+ * commands that have a rich text rendering (`explain`, `doctor`,
+ * `bench`, `init`) to decide between their text mode and a generic
+ * `emit()` call.
+ *
+ * @returns {boolean}
+ */
+function wantStructuredOutput() {
+  if (FLAGS_GLOBAL.json) return true;
+  const o = FLAGS_GLOBAL.output;
+  return o === 'json' || o === 'yaml' || o === 'csv';
+}
+
+/**
  * Optional output filter. When `--filter <jq-expr>` is set, every body
  * passed through `emit` / `emitList` is piped through `jq` and the
  * parsed result substituted before serialisation. If `jq` isn't on
@@ -1426,7 +1441,7 @@ async function cmdInit(positional, flags) {
   info('');
   info(`Activate with:  STRATOS_PROFILE=${profileName} stratos health`);
   info(`Or per-call:    stratos --profile ${profileName} health`);
-  if (FLAGS_GLOBAL.json) emit({ profile: profileName, entry: { ...entry,
+  if (wantStructuredOutput()) emit({ profile: profileName, entry: { ...entry,
     account_key: entry.account_key ? maskKey(entry.account_key) : null,
     access_key:  entry.access_key  ? maskKey(entry.access_key)  : null,
     signed_url_secret: entry.signed_url_secret ? maskKey(entry.signed_url_secret) : null,
@@ -1686,7 +1701,7 @@ async function cmdDoctor(flags) {
   check(`Reach ${cfg.BASE}`, netOk, netDetail);
 
   // Render.
-  if (FLAGS_GLOBAL.json) { emit(checks); return; }
+  if (wantStructuredOutput()) { emit(checks); return; }
   const headers = c.bold('CHECK'.padEnd(30) + 'STATUS  DETAIL');
   out(headers);
   out(c.dim('─'.repeat(80)));
@@ -1749,7 +1764,7 @@ async function cmdBench(flags) {
       max_ms: sorted[sorted.length - 1] ?? null,
     },
   };
-  if (FLAGS_GLOBAL.json) { emit(stats); return; }
+  if (wantStructuredOutput()) { emit(stats); return; }
   out(c.bold(`cold start (spawn → exit):  ${stats.summary.cold_start_ms} ms`));
   out(c.bold(`requests (${oks.length}/${samples.length} ok):  `) +
       `min ${stats.summary.min_ms}  p50 ${stats.summary.p50_ms}  p95 ${stats.summary.p95_ms}  max ${stats.summary.max_ms}  (ms)`);
@@ -1867,7 +1882,7 @@ async function cmdExplain(positional, flags) {
   if (!entry) {
     fatal(`no explanation for "${arg}". Try one of: ${Object.keys(EXPLANATIONS).join(', ')}.`, EX.UNAVAILABLE);
   }
-  if (FLAGS_GLOBAL.json) {
+  if (wantStructuredOutput()) {
     emit({ code: key, ...entry });
     return;
   }

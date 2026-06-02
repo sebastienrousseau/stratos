@@ -1,0 +1,116 @@
+# SPDX-License-Identifier: MIT
+#
+# Composite GitHub Action that runs the Stratos CLI from a GitHub
+# Actions workflow without requiring users to `npm install -g` first.
+#
+# Usage:
+#
+#   - uses: sebastienrousseau/stratos/actions/stratos@v0.0.6
+#     with:
+#       command: purge --tag build-${{ github.sha }}
+#     env:
+#       CLOUDCDN_ACCOUNT_KEY: ${{ secrets.CLOUDCDN_ACCOUNT_KEY }}
+#
+# The action transparently picks the cheapest install channel for the
+# host:
+#   * Linux x64        - downloads the prebuilt single binary
+#   * Linux arm64      - downloads the prebuilt single binary
+#   * macOS arm64      - downloads the prebuilt single binary
+#   * macOS x64        - downloads the prebuilt single binary
+#   * Windows x64      - downloads the prebuilt single binary
+#   * (anywhere else)  - falls back to `npm install -g @cloudcdn/stratos`
+#
+# By default it installs the version pinned in this repository at the
+# ref the action is consumed from. Override with `with: version: 0.0.5`.
+
+name: stratos
+description: Run the official CloudCDN CLI without an npm install step.
+author: Sebastien Rousseau
+
+branding:
+  icon: cloud
+  color: blue
+
+inputs:
+  command:
+    description: 'CLI args, e.g. `purge --tag build-${{ github.sha }}`. Required.'
+    required: true
+  version:
+    description: 'Stratos version to install. Defaults to the version pinned in the action.yml.'
+    required: false
+    default: '0.0.6'
+  output:
+    description: 'Output format hint forwarded as --output. One of json|yaml|csv|table.'
+    required: false
+    default: ''
+
+outputs:
+  stdout:
+    description: 'Captured stdout from the command.'
+    value: ${{ steps.run.outputs.stdout }}
+  exit-code:
+    description: 'Exit code from the CLI invocation.'
+    value: ${{ steps.run.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Detect host
+      id: host
+      shell: bash
+      run: |
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64)   echo "asset=stratos-linux-x64"    >> "$GITHUB_OUTPUT" ;;
+          Linux-ARM64) echo "asset=stratos-linux-arm64"  >> "$GITHUB_OUTPUT" ;;
+          macOS-X64)   echo "asset=stratos-darwin-x64"   >> "$GITHUB_OUTPUT" ;;
+          macOS-ARM64) echo "asset=stratos-darwin-arm64" >> "$GITHUB_OUTPUT" ;;
+          Windows-X64) echo "asset=stratos-win-x64.exe"  >> "$GITHUB_OUTPUT" ;;
+          *)           echo "asset=" >> "$GITHUB_OUTPUT" ;;
+        esac
+
+    - name: Install via single binary
+      if: steps.host.outputs.asset != ''
+      shell: bash
+      run: |
+        set -e
+        VERSION="${{ inputs.version }}"
+        ASSET="${{ steps.host.outputs.asset }}"
+        URL="https://github.com/sebastienrousseau/stratos/releases/download/v${VERSION}/${ASSET}"
+        if [[ "$ASSET" == *.exe ]]; then
+          OUT="$RUNNER_TEMP/stratos.exe"
+        else
+          OUT="$RUNNER_TEMP/stratos"
+        fi
+        curl -fsSL "$URL" -o "$OUT"
+        chmod +x "$OUT"
+        echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+        "$OUT" version
+
+    - name: Install via npm fallback
+      if: steps.host.outputs.asset == ''
+      shell: bash
+      run: |
+        npm install -g "@cloudcdn/stratos@${{ inputs.version }}"
+        stratos version
+
+    - name: Run the command
+      id: run
+      shell: bash
+      env:
+        STRATOS_CI: '1'
+      run: |
+        set +e
+        OUTPUT_FLAG=""
+        if [ -n "${{ inputs.output }}" ]; then
+          OUTPUT_FLAG="--output ${{ inputs.output }}"
+        fi
+        stratos $OUTPUT_FLAG ${{ inputs.command }} > /tmp/stratos-out 2> /tmp/stratos-err
+        RC=$?
+        echo "exit-code=$RC" >> "$GITHUB_OUTPUT"
+        DELIM="EOF_$(date +%s%N)"
+        echo "stdout<<$DELIM" >> "$GITHUB_OUTPUT"
+        cat /tmp/stratos-out >> "$GITHUB_OUTPUT"
+        echo "$DELIM"        >> "$GITHUB_OUTPUT"
+        cat /tmp/stratos-out
+        cat /tmp/stratos-err >&2
+        exit $RC
