@@ -31,7 +31,7 @@
 - [Why a single-file CLI?](#why-a-single-file-cli)
 
 **Reference**
-- [Capabilities in v0.0.9](#capabilities-in-v009)
+- [Capabilities in v0.0.10](#capabilities-in-v0010)
 - [Authentication & profiles](#authentication--profiles)
 - [Commands](#commands)
 - [Programmatic API](#programmatic-api)
@@ -44,6 +44,7 @@
 - [Integrity & supply chain](#integrity--supply-chain)
 - [Development](#development)
 - [Tests & coverage](#tests--coverage)
+- [Release pipeline](docs/release-pipeline.md)
 - [Security](#security)
 - [Documentation](#documentation)
 - [License](#license)
@@ -52,11 +53,14 @@
 
 ## Install
 
-Stratos ships as one ES module (`stratos.mjs`, ~3,700 lines, **zero runtime dependencies**). Five distribution channels:
+Stratos ships as one ES module (`stratos.mjs`, ~3,700 lines, **zero runtime dependencies**). Eight distribution channels:
 
 | Channel | Command |
 |---|---|
 | **npm** *(recommended)* | `npm install -g @cloudcdn/stratos` |
+| **Homebrew** *(macOS / Linux, no Node required)* | `brew tap sebastienrousseau/tap && brew install sebastienrousseau/tap/stratos` |
+| **winget** *(Windows)* | `winget install CloudCDN.Stratos` |
+| **Scoop** *(Windows)* | `scoop bucket add sebastienrousseau https://github.com/sebastienrousseau/scoop-bucket && scoop install stratos` |
 | **Single binary** *(no Node required)* | Download from [the latest release](https://github.com/sebastienrousseau/stratos/releases/latest) — `stratos-{linux-x64,linux-arm64,darwin-x64,darwin-arm64,win-x64.exe}`. Compiled with Bun; ~58 MB, ~20 ms cold start. |
 | **macOS / Linux installer** | `curl -sL https://cloudcdn.pro/dist/stratos/install.sh \| bash` |
 | **Windows (PowerShell)** | `irm https://cloudcdn.pro/dist/stratos/install.ps1 \| iex` |
@@ -68,7 +72,7 @@ Override the installer prefix:
 curl -sL https://cloudcdn.pro/dist/stratos/install.sh | STRATOS_PREFIX=$HOME/bin bash
 ```
 
-Both shell installers verify a pinned SHA-256 of the script *before* writing it to disk. npm releases are published with **Sigstore-backed provenance** — verify with `npm audit signatures`.
+Both shell installers verify a pinned SHA-256 of the script *before* writing it to disk. npm releases are published with **Sigstore-backed provenance** — verify with `npm audit signatures`. Every release also ships a SLSA L3 build provenance attestation (`stratos-v<version>.intoto.jsonl`) and a Cosign keyless signature for each canonical artefact — see [Integrity & supply chain](#integrity--supply-chain).
 
 > **Module format:** `@cloudcdn/stratos` is **ESM only** (`"type": "module"`). Modern Node ≥ 20 consumes it directly with `import`. CommonJS callers use dynamic import: `const stratos = await import('@cloudcdn/stratos')`.
 
@@ -83,7 +87,7 @@ Both shell installers verify a pinned SHA-256 of the script *before* writing it 
 ```bash
 # Verify the install
 stratos version
-# → stratos v0.0.9
+# → stratos v0.0.10
 
 # Hit the public health endpoint
 stratos health
@@ -127,7 +131,7 @@ If those trade-offs match what you need, read on. If you'd prefer a richer SDK w
 
 ---
 
-## Capabilities in v0.0.9
+## Capabilities in v0.0.10
 
 Stratos covers ~30 commands across the full CloudCDN platform, grouped by concern.
 
@@ -365,7 +369,7 @@ await main(['health', '--cdn-url', 'http://localhost:8788', '--json']);
 | `cmdHealth`, `cmdPurge`, `cmdSigned`, `cmdAssets`, `cmdInsights`, `cmdZones`, `cmdTokens`, `cmdWebhooks`, `cmdStorage`, `cmdLogs`, `cmdAI`, `cmdImage`, `cmdSearch`, `cmdAsk` | `async function` | One per CLI subcommand |
 | `MCP_TOOLS` | `Array<{name, desc, schema}>` | The 10 tools exposed over MCP |
 | `mcpCall(name, args)` | `async function` | Invoke an MCP tool in-process |
-| `VERSION` | `string` | e.g. `'0.0.9'` |
+| `VERSION` | `string` | e.g. `'0.0.10'` |
 | `EX` | `Readonly<Object>` | Sysexits-style exit-code constants |
 
 Every export carries full JSDoc (parameters, returns, throws). IDE hover and TypeDoc-generated docs work out of the box.
