@@ -11,7 +11,9 @@
 // Schema reference: https://github.com/ScoopInstaller/Scoop/wiki/App-Manifests
 //
 // Usage:
-//   node scripts/make-scoop.mjs <version>    # writes dist/stratos.scoop.json
+//   node scripts/make-scoop.mjs <version>                   # writes dist/stratos.scoop.json
+//   node scripts/make-scoop.mjs <version> --bin-dir <dir>   # use binaries in <dir>
+//                                                          # to compute the real SHA
 
 import { writeFile, mkdir, readFile, access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -23,24 +25,33 @@ const ROOT = resolve(HERE, '..');
 
 const version = process.argv[2];
 if (!version) {
-  process.stderr.write('usage: make-scoop.mjs <version>\n');
+  process.stderr.write('usage: make-scoop.mjs <version> [--bin-dir <dir>]\n');
   process.exit(1);
 }
 
+const binDirIdx = process.argv.indexOf('--bin-dir');
+const binDir = binDirIdx >= 0 ? resolve(process.argv[binDirIdx + 1]) : null;
+
 const baseUrl = `https://github.com/sebastienrousseau/stratos/releases/download/v${version}`;
 
-/** Compute SHA-256 of a local file (or return a placeholder if not yet built). */
-async function fileSha(localPath) {
-  try {
-    await access(localPath);
-    const buf = await readFile(localPath);
-    return createHash('sha256').update(buf).digest('hex');
-  } catch {
-    return 'REPLACE_WITH_SHA256';
+/**
+ * Compute SHA-256 of a local file. Tries `--bin-dir` first, falls back
+ * to the repo root, finally yields a placeholder for the pre-binaries
+ * pass.
+ */
+async function fileSha(filename) {
+  const candidates = binDir ? [join(binDir, filename), join(ROOT, filename)] : [join(ROOT, filename)];
+  for (const p of candidates) {
+    try {
+      await access(p);
+      const buf = await readFile(p);
+      return createHash('sha256').update(buf).digest('hex');
+    } catch { /* try next */ }
   }
+  return 'REPLACE_WITH_SHA256';
 }
 
-const winx64Sha   = await fileSha(join(ROOT, 'stratos-win-x64.exe'));
+const winx64Sha = await fileSha('stratos-win-x64.exe');
 
 const manifest = {
   $schema: 'https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json',

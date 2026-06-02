@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.7] — 2026-06-02
+
+### Fixed
+
+- **`darwin-x64` binary no longer depends on the `macos-13` runner.** Bun cross-compiles cleanly from `ubuntu-latest`, so the only thing `macos-13` was buying us was a native smoke-test of the Intel binary — and that runner pool's multi-hour queue was blocking SLSA L3 generation (and `darwin-x64` attachment) on every release. Cross-compile + skip the native smoke. SLSA L3 now finishes in minutes instead of hours.
+- **`winget` and `Scoop` manifests no longer ship with `REPLACE_WITH_SHA256` placeholders.** The publish job runs before `binaries`, so it couldn't compute binary hashes at generation time. v0.0.7 adds a `manifests` job that runs after `binaries`, downloads them, recomputes SHA-256 per arch, and re-uploads the manifests with real hashes. A guard step fails the job if any placeholder survives. `--bin-dir <dir>` mode added to `scripts/make-winget.mjs` and `scripts/make-scoop.mjs` to support both passes.
+
+### Changed
+
+- **SLSA L3 (`hashes` → `slsa`) now depends on the `manifests` job too,** so the in-toto attestation covers the patched manifests rather than the placeholder versions.
+
 ## [0.0.6] — 2026-06-02
 
 ### Added
@@ -215,6 +226,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.7]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.7
 [0.0.6]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.6
 [0.0.5]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.5
 [0.0.4]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.4
