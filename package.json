@@ -1,6 +1,6 @@
 {
   "name": "@cloudcdn/stratos",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Official command-line client for CloudCDN — full control plane in a single zero-dep Node script.",
   "type": "module",
   "main": "stratos.mjs",
@@ -20,7 +20,7 @@
   },
   "scripts": {
     "stratos": "node stratos.mjs",
-    "test": "node --test test/parse.test.mjs test/router.test.mjs test/signed.test.mjs test/http.test.mjs test/mcp.test.mjs test/doctor-bench.test.mjs test/diff-pagination.test.mjs test/commands.test.mjs test/coverage-edge.test.mjs test/branches.test.mjs test/more-branches.test.mjs test/v003.test.mjs test/v004.test.mjs",
+    "test": "node --test test/parse.test.mjs test/router.test.mjs test/signed.test.mjs test/http.test.mjs test/mcp.test.mjs test/doctor-bench.test.mjs test/diff-pagination.test.mjs test/commands.test.mjs test/coverage-edge.test.mjs test/branches.test.mjs test/more-branches.test.mjs test/v003.test.mjs test/v004.test.mjs test/v005.test.mjs",
     "coverage": "c8 --reporter=text --reporter=html --reporter=lcov --include='stratos.mjs' npm test",
     "coverage:check": "c8 --include='stratos.mjs' --lines=100 --statements=100 --functions=100 --branches=85 npm test",
     "docs:check": "node scripts/check-docs.mjs",

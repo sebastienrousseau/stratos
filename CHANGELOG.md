@@ -10,6 +10,24 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.5] — 2026-06-01
+
+### Added
+
+- **`--output <fmt>`** — choose `json`, `yaml`, `csv`, or `table`. `--json` is now a shortcut for `--output json`. `csv` always renders a header row + RFC-4180-escaped cells; `yaml` uses bare scalars where safe and double-quotes anything that could be mistaken for a YAML token (`null`, `yes`, leading `-`, etc.).
+- **`--filter <jq-expr>`** — pipe every body through `jq` before serialising. Multi-output jq streams collapse into an array. Missing `jq` exits `EX_CONFIG`; malformed expressions exit `EX_DATAERR`.
+- **`--rate <n>[/s]`** — client-side rate limiter for bulk paths. Currently wired into `storage sync`; future commands can opt in via the exported `rateLimiter()` helper.
+- **OpenTelemetry export** — `--otlp-endpoint <url>` (also `OTEL_EXPORTER_OTLP_ENDPOINT` env) emits **one OTLP/HTTP span per command** with `service.name=stratos`, `service.version=<x>`, `stratos.command`, `stratos.flags.output`, `stratos.flags.profile`. Optional `--otlp-headers k=v,k=v` (also `OTEL_EXPORTER_OTLP_HEADERS`) for auth. Best-effort: exporter failures never block the command exit.
+- **Multi-arch Docker image** — `ghcr.io/sebastienrousseau/stratos:<version>` and `:latest`, built for `linux/amd64` and `linux/arm64`, published from `release.yml`. Attested via `actions/attest-build-provenance@v1`.
+- **CycloneDX VEX statement** — `dist/vex.cyclonedx.json` re-issued every release. Asserts "no known affected vulnerabilities" for the current build of `@cloudcdn/stratos`. Stand-alone, valid CycloneDX 1.6.
+- **Homebrew Formula** — `dist/stratos.rb` generated per release and attached to the GH Release. Setup instructions for the `homebrew-cloudcdn` tap repo live at [`examples/homebrew-tap-setup.md`](examples/homebrew-tap-setup.md).
+- **`examples/migrate-from-codex.md`** — guide for teams already on OpenAI's Codex CLI who want to add CloudCDN automation via the MCP-server integration.
+
+### Changed
+
+- **Release notes are now extracted from `CHANGELOG.md`** by `scripts/extract-release-notes.mjs` and passed to `softprops/action-gh-release@v2` via `body_path`. Carries over from the v0.0.4 papercut where the release body landed empty and had to be `gh release edit`-d post-hoc.
+- **`release.yml` now sets `name: Stratos v<version>`** explicitly so the GH Release title is populated even when the workflow re-runs.
+
 ## [0.0.4] — 2026-06-01
 
 ### Added
@@ -182,6 +200,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.5]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.5
 [0.0.4]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.4
 [0.0.3]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.3
 [0.0.2]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.2
