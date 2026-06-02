@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.10] — 2026-06-02
+
+### Added
+
+- **Five new distribution channels wired into the release pipeline.** The `release.yml` workflow now auto-bumps `sebastienrousseau/homebrew-tap` (gated on `HOMEBREW_TAP_TOKEN`), pushes to `sebastienrousseau/scoop-bucket` (gated on `SCOOP_BUCKET_TOKEN`), opens a PR against `microsoft/winget-pkgs` via `vedantmgoyal9/winget-releaser@v2` (gated on `WINGET_PAT`), and uploads `stratos.mjs` + installers to `cloudcdn.pro` (gated on `CDN_UPLOAD_URL` + `CDN_UPLOAD_TOKEN`). Every gate is graceful — missing secrets emit a `::warning::` and skip the step, leaving the core release green.
+- **Post-release smoke verification job.** New `smoke-verify` matrix runs after every release, installs Stratos from npm + Homebrew + Docker + linux-x64 binary + darwin-arm64 binary + the GH-release-hosted `install.sh`, runs `stratos version`, and fails the workflow if any channel prints anything other than the expected tag. Catches "shipped but doesn't install" regressions (the class of bug that bit v0.0.7's `install.sh` on BSD-style `sha256sum`).
+- **`docs/release-pipeline.md`** — full job-graph diagram, secret-by-secret setup instructions, and the bootstrapping recipe for adding new distribution channels (Arch AUR, Snap, Nix flake, etc.).
+
+### Fixed
+
+- **README install table fully expanded and corrected.** Eight distribution channels (npm, Homebrew, winget, Scoop, single binary, install.sh, install.ps1, from-source) instead of five. The Homebrew command uses the **fully-qualified `brew install sebastienrousseau/tap/stratos`** — bare `brew install stratos` does not find tap-only formulas, which we confirmed by smoke-testing the v0.0.9 tap end-to-end during scoping.
+
 ## [0.0.9] — 2026-06-02
 
 ### Fixed
@@ -249,6 +261,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.10]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.10
 [0.0.9]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.9
 [0.0.8]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.8
 [0.0.7]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.7

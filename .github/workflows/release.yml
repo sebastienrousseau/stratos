@@ -428,3 +428,278 @@ jobs:
       provenance-name: stratos-${{ github.ref_name }}.intoto.jsonl
       upload-assets: true
       upload-tag-name: ${{ github.ref_name }}
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Auto-bump the Homebrew tap (sebastienrousseau/homebrew-tap) with the
+  # real-SHA stratos.rb patched by the `manifests` job. Requires a PAT with
+  # `contents: write` on the tap repo, stored as `HOMEBREW_TAP_TOKEN`. Without
+  # the secret the step is a no-op so this workflow stays green for forks /
+  # first-run before secrets are configured.
+  # ───────────────────────────────────────────────────────────────────────────
+  tap-bump:
+    needs: manifests
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.repository.fork }}
+    steps:
+      - name: Strip v-prefix off the tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch patched stratos.rb from the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern 'stratos.rb' \
+            --output stratos.rb
+          head -25 stratos.rb
+
+      - name: Skip if HOMEBREW_TAP_TOKEN is unset
+        id: gate
+        env:
+          TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN secret is not configured — skipping tap bump."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push to sebastienrousseau/homebrew-tap
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -e
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name  "github-actions[bot]"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/sebastienrousseau/homebrew-tap.git" tap
+          cp stratos.rb tap/Formula/stratos.rb
+          cd tap
+          git add Formula/stratos.rb
+          if git diff --cached --quiet; then
+            echo "no changes — tap is already at v${VERSION}"
+            exit 0
+          fi
+          git commit -m "feat(stratos): bump to v${VERSION}
+
+Auto-bumped by the upstream release workflow.
+
+  brew upgrade stratos"
+          git push
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Auto-bump the Scoop bucket (sebastienrousseau/scoop-bucket) with the
+  # real-SHA stratos.json. Requires SCOOP_BUCKET_TOKEN and the bucket repo
+  # to exist with a `bucket/` directory (Scoop convention).
+  # ───────────────────────────────────────────────────────────────────────────
+  scoop-bump:
+    needs: manifests
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.repository.fork }}
+    steps:
+      - name: Strip v-prefix off the tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch patched stratos.scoop.json from the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern 'stratos.scoop.json' \
+            --output stratos.scoop.json
+
+      - name: Skip if SCOOP_BUCKET_TOKEN is unset
+        id: gate
+        env:
+          TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::SCOOP_BUCKET_TOKEN secret is not configured — skipping scoop bump."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push to sebastienrousseau/scoop-bucket
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -e
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name  "github-actions[bot]"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/sebastienrousseau/scoop-bucket.git" bucket
+          mkdir -p bucket/bucket
+          cp stratos.scoop.json bucket/bucket/stratos.json
+          cd bucket
+          git add bucket/stratos.json
+          if git diff --cached --quiet; then
+            echo "no changes — bucket is already at v${VERSION}"
+            exit 0
+          fi
+          git commit -m "feat(stratos): bump to v${VERSION}
+
+Auto-bumped by the upstream release workflow.
+
+  scoop update stratos"
+          git push
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # winget submission. Opens a PR against microsoft/winget-pkgs with the
+  # newly-attached stratos-win-x64.exe. Requires a fine-grained PAT with
+  # `public_repo` (or classic with `repo`) scoped to the user's fork of
+  # microsoft/winget-pkgs, stored as `WINGET_PAT`.
+  # ───────────────────────────────────────────────────────────────────────────
+  winget-submit:
+    needs: manifests
+    runs-on: windows-latest
+    if: ${{ !github.event.repository.fork }}
+    steps:
+      - name: Skip if WINGET_PAT is unset
+        id: gate
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.WINGET_PAT }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::WINGET_PAT secret is not configured — skipping winget submission."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open PR against microsoft/winget-pkgs
+        if: steps.gate.outputs.skip != 'true'
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: CloudCDN.Stratos
+          installers-regex: 'stratos-win-x64\.exe$'
+          token: ${{ secrets.WINGET_PAT }}
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # CDN sync. Uploads stratos.mjs + install.sh + install.ps1 to cloudcdn.pro
+  # so the README's `curl install.sh | bash` and `irm install.ps1 | iex`
+  # one-liners install the current version (not whatever the CDN was last
+  # serving). Gated on CDN_UPLOAD_URL + CDN_UPLOAD_TOKEN. Expected upload
+  # contract: PUT <CDN_UPLOAD_URL>/<filename> with bearer auth.
+  # ───────────────────────────────────────────────────────────────────────────
+  cdn-sync:
+    needs: publish
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.repository.fork }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip if CDN credentials are unset
+        id: gate
+        env:
+          URL: ${{ secrets.CDN_UPLOAD_URL }}
+          TOKEN: ${{ secrets.CDN_UPLOAD_TOKEN }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$TOKEN" ]; then
+            echo "::warning::CDN_UPLOAD_URL or CDN_UPLOAD_TOKEN is unset — skipping CDN sync."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to cloudcdn.pro
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          CDN_URL:   ${{ secrets.CDN_UPLOAD_URL }}
+          CDN_TOKEN: ${{ secrets.CDN_UPLOAD_TOKEN }}
+        run: |
+          set -e
+          for f in stratos.mjs install/install.sh install/install.ps1; do
+            name="$(basename "$f")"
+            echo "PUT ${CDN_URL%/}/dist/stratos/${name}"
+            curl -fsSL -X PUT \
+              -H "Authorization: Bearer ${CDN_TOKEN}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@${f}" \
+              "${CDN_URL%/}/dist/stratos/${name}"
+          done
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Post-release smoke verification. Once everything has shipped, install
+  # Stratos from each public channel and run `stratos version`, asserting the
+  # output matches this release's tag. Catches "shipped but doesn't install"
+  # regressions (e.g. the install.sh BSD-sha256sum bug we found post-v0.0.7).
+  # ───────────────────────────────────────────────────────────────────────────
+  smoke-verify:
+    needs: [tap-bump, slsa]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest,  channel: npm }
+          - { runner: ubuntu-latest,  channel: binary-linux-x64 }
+          - { runner: ubuntu-latest,  channel: docker }
+          - { runner: ubuntu-latest,  channel: install-sh }
+          - { runner: macos-latest,   channel: homebrew }
+          - { runner: macos-latest,   channel: binary-darwin-arm64 }
+    steps:
+      - name: Strip v-prefix off the tag
+        id: ver
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke ${{ matrix.channel }}
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          CHANNEL: ${{ matrix.channel }}
+        run: |
+          set -euo pipefail
+          expected="stratos v${VERSION}"
+          case "${CHANNEL}" in
+            npm)
+              # Some npm CDN edges propagate the new dist-tag in ~30 s.
+              for i in 1 2 3 4 5; do
+                npm install -g "@cloudcdn/stratos@${VERSION}" && break || sleep 15
+              done
+              got="$(stratos version)"
+              ;;
+            binary-linux-x64)
+              curl -fsSL -o stratos \
+                "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/stratos-linux-x64"
+              chmod +x stratos
+              got="$(./stratos version)"
+              ;;
+            binary-darwin-arm64)
+              curl -fsSL -o stratos \
+                "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/stratos-darwin-arm64"
+              chmod +x stratos
+              got="$(./stratos version)"
+              ;;
+            docker)
+              for i in 1 2 3 4 5; do
+                docker pull "ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}" && break || sleep 15
+              done
+              got="$(docker run --rm "ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}" version)"
+              ;;
+            install-sh)
+              # Smoke the GH-release-hosted install.sh against an isolated prefix.
+              tmp="$(mktemp -d)"
+              curl -fsSL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/install.sh" -o install.sh
+              STRATOS_PREFIX="${tmp}/bin" bash install.sh
+              got="$(${tmp}/bin/stratos version)"
+              ;;
+            homebrew)
+              brew tap sebastienrousseau/tap
+              brew install sebastienrousseau/tap/stratos
+              got="$(stratos version)"
+              ;;
+            *) echo "unknown channel: ${CHANNEL}"; exit 1 ;;
+          esac
+          echo "expected: ${expected}"
+          echo "got:      ${got}"
+          [ "${got}" = "${expected}" ]
