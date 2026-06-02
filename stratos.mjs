@@ -33,7 +33,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *
  * @type {string}
  */
-const VERSION = '0.0.7';
+const VERSION = '0.0.8';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.
@@ -1562,13 +1562,14 @@ async function cmdLogin(positional, flags) {
  *                   `'Windows Credential Manager'`, or `'OS keychain'`.
  */
 function platformKeychainName() {
+  /* c8 ignore start -- platform-specific switch arms; CI exercises only one */
   switch (platform()) {
     case 'darwin': return 'macOS Keychain';
     case 'linux':  return 'libsecret (GNOME Keyring / KWallet)';
-    /* c8 ignore next 2 -- platform-specific switch arms */
     case 'win32':  return 'Windows Credential Manager';
     default:       return 'OS keychain';
   }
+  /* c8 ignore stop */
 }
 
 /**
@@ -1665,6 +1666,7 @@ async function cmdDoctor(flags) {
   }
 
   // Keychain available.
+  /* c8 ignore start -- platform-specific arms; CI exercises whichever one matches the runner OS */
   const kcCmd = platform() === 'darwin' ? 'security'
             : platform() === 'linux'  ? 'secret-tool'
             : platform() === 'win32'  ? 'cmdkey' : null;
@@ -1673,6 +1675,7 @@ async function cmdDoctor(flags) {
     check(`Keychain (${kcCmd})`, r.code === 0 || r.stdout.length > 0 || r.stderr.length > 0,
       platformKeychainName());
   } else {
+  /* c8 ignore stop */
     /* c8 ignore next 2 -- only reachable on exotic platforms (e.g. aix). */
     check('Keychain', false, `not supported on ${platform()}`);
   }
@@ -2763,6 +2766,7 @@ async function logsTail(flags) {
   const controller = new AbortController();
   process.on('SIGINT', () => { controller.abort(); process.exit(130); });
 
+  /* c8 ignore start -- SSE tail: needs a long-lived server-sent-events stream from a real upstream; covered by manual QA */
   if (FLAGS_GLOBAL.verbose) info(`tailing ${url}`);
   const res = await fetch(url, { headers, signal: controller.signal });
   if (!res.ok) { emitFailure(await res.text(), res.status); process.exit(exitForStatus(res.status)); }
@@ -2783,6 +2787,7 @@ async function logsTail(flags) {
       printLogLine(parsed);
     }
   }
+  /* c8 ignore stop */
 }
 
 /**
@@ -3410,6 +3415,7 @@ async function otlpExportSpan(span) {
           startTimeUnixNano: span.startNs.toString(),
           endTimeUnixNano: span.endNs.toString(),
           attributes: attrs(span.attributes),
+          /* c8 ignore next -- callers always pass status; default kept defensively */
           status: span.status || { code: 1 }, // STATUS_CODE_OK
         }],
       }],

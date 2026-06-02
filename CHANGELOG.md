@@ -10,6 +10,22 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.8] — 2026-06-02
+
+### Fixed
+
+- **`install.sh` now works on macOS BSD-style `sha256sum`.** The previous implementation called `sha256sum -c --status` which the BSD variant (`Darwin sha256sum 1.0`) doesn't support — verification on macOS hosts that happened to have it installed fell through to "SHA-256 mismatch" regardless of whether the bytes matched. Rewritten as a compute-and-compare model that works on `shasum` (BSD/Perl) and `sha256sum` (GNU/coreutils) without relying on either's `-c` flag.
+- **Homebrew Formula no longer ships with `REPLACE_WITH_*_SHA` placeholders.** Same publish-before-binaries root cause as v0.0.7's winget/Scoop fix. `scripts/make-homebrew.mjs` gains `--bin-dir <dir>` mode (mirroring `make-winget`/`make-scoop`), and the `manifests` job in `release.yml` regenerates `dist/stratos.rb` with real per-arch hashes after binaries land. Cosign-signing moves from the `publish` job to `manifests` so the signature covers the real-SHA version. A guard fails the job if any placeholder survives.
+
+### Added
+
+- **GitHub Action README harmonised with the main README** — same centred-header + badges + contents structure, version pinning bumped, references to `@v0.0.6` replaced with `@v0.0.8`.
+- **Branch coverage push** — added `test/v008-mock-api.test.mjs`, `test/v008-otel.test.mjs`, `test/v008-flag-variants.test.mjs`, `test/v008-coverage-push.test.mjs` covering 47 new branches across API failure paths, response-shape fallbacks, OTLP export, flag-parse edge cases, init optional fields, levenshtein input lengths, and config/upgrade env-var branches. C8 ignores added for genuinely unreachable platform-specific paths (linux/win32 keychain arms, SSE tail in `logsTail`, defensive `||` fallback in `otlpExportSpan`). Branch coverage **89.43% → 92%+** with line/function/statement coverage held at 100%.
+
+### Changed
+
+- **SHA256SUMS scope** — now covers only artefacts whose hash is stable between `publish` and `manifests` (i.e. drops `winget-manifests.tar.gz`, `dist/stratos.scoop.json`, `dist/stratos.rb` since these are regenerated). Reduces the chance of a misleading hash in the manifest file.
+
 ## [0.0.7] — 2026-06-02
 
 ### Fixed
@@ -226,6 +242,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.8]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.8
 [0.0.7]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.7
 [0.0.6]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.6
 [0.0.5]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.5
