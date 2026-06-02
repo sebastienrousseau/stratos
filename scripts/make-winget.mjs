@@ -14,37 +14,48 @@
 // one-time setup similar to the Homebrew tap.
 //
 // Usage:
-//   node scripts/make-winget.mjs <version>    # writes to dist/winget/
+//   node scripts/make-winget.mjs <version>                  # writes to dist/winget/
+//   node scripts/make-winget.mjs <version> --bin-dir <dir>  # use binaries in <dir>
+//                                                          # to compute the real SHA
 
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, readFile, access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { readFile, access } from 'node:fs/promises';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
 
 const version = process.argv[2];
 if (!version) {
-  process.stderr.write('usage: make-winget.mjs <version>\n');
+  process.stderr.write('usage: make-winget.mjs <version> [--bin-dir <dir>]\n');
   process.exit(1);
 }
 
+const binDirIdx = process.argv.indexOf('--bin-dir');
+const binDir = binDirIdx >= 0 ? resolve(process.argv[binDirIdx + 1]) : null;
+
 const baseUrl = `https://github.com/sebastienrousseau/stratos/releases/download/v${version}`;
 
-/** Compute SHA-256 of a local file (or return a placeholder if not yet built). */
-async function fileSha(localPath) {
-  try {
-    await access(localPath);
-    const buf = await readFile(localPath);
-    return createHash('sha256').update(buf).digest('hex').toUpperCase();
-  } catch {
-    return 'REPLACE_WITH_SHA256';
+/**
+ * Compute SHA-256 of a local file. Tries `--bin-dir` first (used by the
+ * release workflow's `manifests` job, which runs after the binaries are
+ * built and downloads them into a known dir), then the repo root.
+ * Returns the upper-case hex or a placeholder if the file isn't there.
+ */
+async function fileSha(filename) {
+  const candidates = binDir ? [join(binDir, filename), join(ROOT, filename)] : [join(ROOT, filename)];
+  for (const p of candidates) {
+    try {
+      await access(p);
+      const buf = await readFile(p);
+      return createHash('sha256').update(buf).digest('hex').toUpperCase();
+    } catch { /* try next */ }
   }
+  return 'REPLACE_WITH_SHA256';
 }
 
-const installerSha = await fileSha(join(ROOT, 'stratos-win-x64.exe'));
+const installerSha = await fileSha('stratos-win-x64.exe');
 
 const installer = `# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 # SPDX-License-Identifier: MIT

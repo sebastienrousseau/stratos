@@ -188,12 +188,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Bun's `bun build --compile --target=bun-<os>-<arch>` cross-compiles
+        # cleanly, so we only put a job on each native host when we want a
+        # smoke-test there. macOS Intel (darwin-x64) cross-compiles from
+        # ubuntu-latest — the `macos-13` runner pool's hours-long queue was
+        # blocking downstream jobs (SLSA L3) and outweighed the value of a
+        # native smoke.
         include:
-          - { runner: ubuntu-latest,  target: linux-x64,    out: stratos-linux-x64,    smoke: true }
+          - { runner: ubuntu-latest,  target: linux-x64,    out: stratos-linux-x64,    smoke: true  }
           - { runner: ubuntu-latest,  target: linux-arm64,  out: stratos-linux-arm64,  smoke: false }
-          - { runner: macos-latest,   target: darwin-arm64, out: stratos-darwin-arm64, smoke: true }
-          - { runner: macos-13,       target: darwin-x64,   out: stratos-darwin-x64,   smoke: true }
-          - { runner: windows-latest, target: win-x64,      out: stratos-win-x64.exe,  smoke: true }
+          - { runner: ubuntu-latest,  target: darwin-x64,   out: stratos-darwin-x64,   smoke: false }
+          - { runner: macos-latest,   target: darwin-arm64, out: stratos-darwin-arm64, smoke: true  }
+          - { runner: windows-latest, target: win-x64,      out: stratos-win-x64.exe,  smoke: true  }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -293,11 +299,67 @@ jobs:
           push-to-registry: true
 
   # ───────────────────────────────────────────────────────────────────────────
+  # Patch the winget and scoop manifests with the real per-arch SHA-256
+  # values. The publish job runs before `binaries` and so cannot compute the
+  # binary hashes at generation time — every release prior to v0.0.7 shipped
+  # manifests with `REPLACE_WITH_SHA256` placeholders. This job regenerates
+  # them with real hashes and re-uploads them to the GH release (softprops/
+  # action-gh-release@v2 overwrites assets that share a name).
+  # ───────────────────────────────────────────────────────────────────────────
+  manifests:
+    needs: [publish, binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+
+      - name: Strip v-prefix off the tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download every binary attached to this release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p bin-staging
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --dir bin-staging \
+            --pattern 'stratos-*-x64' \
+            --pattern 'stratos-*-arm64' \
+            --pattern 'stratos-win-x64.exe'
+          ls -la bin-staging
+
+      - name: Regenerate winget manifests with real SHAs
+        run: |
+          mkdir -p dist
+          node scripts/make-winget.mjs "${{ steps.ver.outputs.version }}" \
+            --bin-dir "$PWD/bin-staging"
+          tar -C dist -czf dist/winget-manifests.tar.gz winget
+          grep -F 'REPLACE_WITH_SHA256' dist/winget/CloudCDN.Stratos.installer.yaml \
+            && { echo 'SHA placeholder still present'; exit 1; } || true
+
+      - name: Regenerate Scoop manifest with real SHAs
+        run: |
+          node scripts/make-scoop.mjs "${{ steps.ver.outputs.version }}" \
+            --bin-dir "$PWD/bin-staging"
+          grep -F 'REPLACE_WITH_SHA256' dist/stratos.scoop.json \
+            && { echo 'SHA placeholder still present'; exit 1; } || true
+
+      - name: Re-upload patched manifests (overwrites)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/winget-manifests.tar.gz
+            dist/stratos.scoop.json
+
+  # ───────────────────────────────────────────────────────────────────────────
   # Compute SHA-256 of every release asset, output as a base64-encoded subject
   # list for the SLSA L3 generator.
   # ───────────────────────────────────────────────────────────────────────────
   hashes:
-    needs: [publish, binaries, docker]
+    needs: [publish, binaries, docker, manifests]
     runs-on: ubuntu-latest
     outputs:
       digests: ${{ steps.hash.outputs.digests }}
