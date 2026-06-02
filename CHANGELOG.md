@@ -10,21 +10,7 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
-## [0.0.11] — 2026-06-02
-
-### Fixed
-
-- **`release.yml` is a valid YAML document again.** The v0.0.10 release.yml additions used multi-line `git commit -m "…"` strings inside `run: |` blocks. The continuation lines started at column 1, which broke YAML block-scalar indentation. The `v0.0.10` tag fired the workflow but it failed at parse time before any job started — npm stayed at v0.0.9 and **no `v0.0.10` GitHub Release was ever created** (the tag exists on the timeline as a ghost). Rewrote the offending commit-message strings to use multiple `-m` flags (git joins those with a blank line; same end-result, valid YAML).
-
-### Reshipped from v0.0.10 (which never actually shipped)
-
-- All five new release.yml jobs (`tap-bump`, `scoop-bump`, `winget-submit`, `cdn-sync`, `smoke-verify`) — see the v0.0.10 entry below for the full scope. Same secret contract: each step gates on its own optional secret and emits a `::warning::` skip when unset.
-- `docs/release-pipeline.md` — full job-graph diagram and per-secret setup instructions.
-- README install table expansion to eight channels with the fully-qualified `brew install sebastienrousseau/tap/stratos`.
-
 ## [0.0.10] — 2026-06-02
-
-> **Note:** The `v0.0.10` tag fired a release.yml run that failed at workflow-parse time. Nothing was published to npm, GHCR, or GitHub Releases for this version — see the v0.0.11 entry above. The intended scope of v0.0.10 was reshipped under v0.0.11.
 
 ### Added
 
@@ -275,7 +261,6 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
-[0.0.11]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.11
 [0.0.10]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.10
 [0.0.9]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.9
 [0.0.8]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.8

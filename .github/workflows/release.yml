@@ -484,11 +484,9 @@ jobs:
             echo "no changes — tap is already at v${VERSION}"
             exit 0
           fi
-          git commit -m "feat(stratos): bump to v${VERSION}
-
-Auto-bumped by the upstream release workflow.
-
-  brew upgrade stratos"
+          git commit \
+            -m "feat(stratos): bump to v${VERSION}" \
+            -m "Auto-bumped by the upstream release workflow. brew upgrade stratos"
           git push
 
   # ───────────────────────────────────────────────────────────────────────────
@@ -544,11 +542,9 @@ Auto-bumped by the upstream release workflow.
             echo "no changes — bucket is already at v${VERSION}"
             exit 0
           fi
-          git commit -m "feat(stratos): bump to v${VERSION}
-
-Auto-bumped by the upstream release workflow.
-
-  scoop update stratos"
+          git commit \
+            -m "feat(stratos): bump to v${VERSION}" \
+            -m "Auto-bumped by the upstream release workflow. scoop update stratos"
           git push
 
   # ───────────────────────────────────────────────────────────────────────────
