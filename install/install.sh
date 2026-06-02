@@ -24,8 +24,8 @@ SOURCE="$CDN_BASE/dist/stratos/stratos.mjs"
 # Expected SHA-256 of stratos.mjs as delivered. Matches the source file
 # in git verbatim — `curl -o` (used below) writes the response body
 # byte-for-byte. Bumped on each release.
-EXPECTED_SHA="4c1fc65925290d212ca8fec153df84750c462d040ebb57b7d3272182f354dfcc"
-VERSION="0.0.7"
+EXPECTED_SHA="e004712e8e6633a06d6085e7b7a0abee64a015c6d01a59e6e276ea6420650d26"
+VERSION="0.0.8"
 
 # --- Styling ---
 if [ -t 1 ]; then
@@ -76,21 +76,32 @@ if ! curl -fsSL --connect-timeout 10 --retry 3 "$SOURCE" -o "$TMP"; then
   exit 1
 fi
 
-# --- Native checksum verification (sha256sum -c / shasum -c --status) ---
+# --- Native checksum verification ---
+#
+# We support both `sha256sum` (GNU coreutils, Linux) and `shasum -a 256`
+# (Perl-based, ships with macOS by default). We avoid `sha256sum -c`
+# because BSD-derived `sha256sum` (e.g. FreeBSD 14, some macOS user
+# installs) uses incompatible argument syntax — see
+# https://github.com/sebastienrousseau/stratos/issues for the report.
+# Instead, compute the hash and compare strings.
 log_info "Verifying SHA-256 of payload ..."
-CHECK_LINE="$EXPECTED_SHA  $TMP"
-if command -v sha256sum >/dev/null 2>&1; then
-  if ! printf '%s\n' "$CHECK_LINE" | sha256sum -c --status; then
-    log_error "SHA-256 mismatch. The download is corrupted or tampered."
-    exit 1
+compute_sha() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    return 1
   fi
-elif command -v shasum >/dev/null 2>&1; then
-  if ! printf '%s\n' "$CHECK_LINE" | shasum -a 256 -c --status; then
-    log_error "SHA-256 mismatch. The download is corrupted or tampered."
-    exit 1
-  fi
-else
-  log_error "Neither sha256sum nor shasum is available — cannot verify integrity. Aborting."
+}
+GOT_SHA="$(compute_sha "$TMP")" || {
+  log_error "Neither shasum nor sha256sum is available — cannot verify integrity. Aborting."
+  exit 1
+}
+if [ "$GOT_SHA" != "$EXPECTED_SHA" ]; then
+  log_error "SHA-256 mismatch. The download is corrupted or tampered."
+  log_error "  expected: $EXPECTED_SHA"
+  log_error "  got:      $GOT_SHA"
   exit 1
 fi
 
