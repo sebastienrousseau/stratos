@@ -593,8 +593,31 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Open PR against microsoft/winget-pkgs
+      - name: Check the package already exists in winget-pkgs
+        # vedantmgoyal9/winget-releaser@v2 only *bumps* an existing package;
+        # it errors out on the first version with "Package <id> does not
+        # exist". The first version is a one-time manual PR (see
+        # docs/release-pipeline.md). Until that PR is merged, we shouldn't
+        # let winget-submit fail the release.
+        id: pkg-check
         if: steps.gate.outputs.skip != 'true'
+        shell: bash
+        run: |
+          if curl -fsSL -o /dev/null \
+               "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/c/CloudCDN/Stratos"; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning title=winget-submit skipped::CloudCDN.Stratos not yet in microsoft/winget-pkgs. Manual first-version PR is required before auto-bump can take over. See docs/release-pipeline.md."
+            {
+              echo "### ⚠️ winget-submit SKIPPED"
+              echo ""
+              echo "\`CloudCDN.Stratos\` is not yet in \`microsoft/winget-pkgs\`. The first version must be submitted manually; subsequent versions auto-bump from this job."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open PR against microsoft/winget-pkgs
+        if: steps.gate.outputs.skip != 'true' && steps.pkg-check.outputs.found == 'true'
         uses: vedantmgoyal9/winget-releaser@v2
         with:
           identifier: CloudCDN.Stratos

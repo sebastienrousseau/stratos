@@ -101,41 +101,50 @@ test('init --output yaml: emits masked profile in YAML', async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('make-winget: writes three manifests under dist/winget/', async () => {
-  const r = await new Promise((resolve) => {
-    const child = spawn(process.execPath,
-      [join(REPO, 'scripts', 'make-winget.mjs'), '0.0.6'],
-      { stdio: ['ignore', 'pipe', 'pipe'], cwd: REPO });
-    let stdout = '';
-    child.stdout.on('data', (d) => stdout += d);
-    child.on('close', (code) => resolve({ stdout, code }));
-  });
-  assert.equal(r.code, 0);
-  // The three manifest files now exist.
-  for (const f of ['CloudCDN.Stratos.installer.yaml', 'CloudCDN.Stratos.locale.en-US.yaml', 'CloudCDN.Stratos.yaml']) {
-    await access(join(REPO, 'dist', 'winget', f));
-  }
-  // Installer manifest has the expected URL pattern.
-  const installer = await readFile(join(REPO, 'dist', 'winget', 'CloudCDN.Stratos.installer.yaml'), 'utf8');
-  assert.match(installer, /PackageIdentifier: CloudCDN\.Stratos/);
-  assert.match(installer, /PackageVersion: 0\.0\.6/);
-  assert.match(installer, /stratos-win-x64\.exe/);
+  // Per-test tmp dist dir so this doesn't race with v007.test.mjs's
+  // make-winget tests (they both wrote to dist/winget/ before --dist-dir
+  // existed; node --test runs files in parallel by default, and the race
+  // was flaky on Windows runners).
+  const tmpDist = await mkdtemp(join(tmpdir(), 'stratos-v006-winget-'));
+  try {
+    const r = await new Promise((resolve) => {
+      const child = spawn(process.execPath,
+        [join(REPO, 'scripts', 'make-winget.mjs'), '0.0.6', '--dist-dir', tmpDist],
+        { stdio: ['ignore', 'pipe', 'pipe'], cwd: REPO });
+      let stdout = '';
+      child.stdout.on('data', (d) => stdout += d);
+      child.on('close', (code) => resolve({ stdout, code }));
+    });
+    assert.equal(r.code, 0);
+    for (const f of ['CloudCDN.Stratos.installer.yaml', 'CloudCDN.Stratos.locale.en-US.yaml', 'CloudCDN.Stratos.yaml']) {
+      await access(join(tmpDist, 'winget', f));
+    }
+    const installer = await readFile(join(tmpDist, 'winget', 'CloudCDN.Stratos.installer.yaml'), 'utf8');
+    assert.match(installer, /PackageIdentifier: CloudCDN\.Stratos/);
+    assert.match(installer, /PackageVersion: 0\.0\.6/);
+    assert.match(installer, /stratos-win-x64\.exe/);
+  } finally { await rm(tmpDist, { recursive: true, force: true }); }
 });
 
 test('make-scoop: emits a valid-looking Scoop JSON manifest', async () => {
-  const r = await new Promise((resolve) => {
-    const child = spawn(process.execPath,
-      [join(REPO, 'scripts', 'make-scoop.mjs'), '0.0.6'],
-      { stdio: ['ignore', 'pipe', 'pipe'], cwd: REPO });
-    let stdout = '';
-    child.stdout.on('data', (d) => stdout += d);
-    child.on('close', (code) => resolve({ stdout, code }));
-  });
-  assert.equal(r.code, 0);
-  const manifest = JSON.parse(await readFile(join(REPO, 'dist', 'stratos.scoop.json'), 'utf8'));
-  assert.equal(manifest.version, '0.0.6');
-  assert.equal(manifest.license, 'MIT');
-  assert.ok(manifest.architecture['64bit'].url.includes('stratos-win-x64.exe'));
-  assert.equal(manifest.architecture['64bit'].bin, 'stratos.exe');
+  // Isolated dist dir (same race as the make-winget test above).
+  const tmpDist = await mkdtemp(join(tmpdir(), 'stratos-v006-scoop-'));
+  try {
+    const r = await new Promise((resolve) => {
+      const child = spawn(process.execPath,
+        [join(REPO, 'scripts', 'make-scoop.mjs'), '0.0.6', '--dist-dir', tmpDist],
+        { stdio: ['ignore', 'pipe', 'pipe'], cwd: REPO });
+      let stdout = '';
+      child.stdout.on('data', (d) => stdout += d);
+      child.on('close', (code) => resolve({ stdout, code }));
+    });
+    assert.equal(r.code, 0);
+    const manifest = JSON.parse(await readFile(join(tmpDist, 'stratos.scoop.json'), 'utf8'));
+    assert.equal(manifest.version, '0.0.6');
+    assert.equal(manifest.license, 'MIT');
+    assert.ok(manifest.architecture['64bit'].url.includes('stratos-win-x64.exe'));
+    assert.equal(manifest.architecture['64bit'].bin, 'stratos.exe');
+  } finally { await rm(tmpDist, { recursive: true, force: true }); }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

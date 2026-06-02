@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.14] — 2026-06-02
+
+### Fixed
+
+- **`winget-submit` no longer fails the release on a package that doesn't exist yet in `microsoft/winget-pkgs`.** `vedantmgoyal9/winget-releaser@v2` is strictly a *bump* action — it errors out on the first version. v0.0.13's run failed for exactly this reason. v0.0.14 adds a pre-check that probes `api.github.com/repos/microsoft/winget-pkgs/contents/manifests/c/CloudCDN/Stratos`: if the package isn't there yet, the step skips with a titled `::warning::` + step-summary entry pointing at the one-time manual PR workflow. Once that PR merges, subsequent releases auto-bump as designed.
+- **Test isolation race between `test/v006.test.mjs` and `test/v007.test.mjs`.** Both called `scripts/make-winget.mjs` and `scripts/make-scoop.mjs` writing to `dist/winget/` and `dist/stratos.scoop.json` in the repo root. node `--test` runs files in parallel; the second write would clobber the first, and the first's assertions would fail on slower runners (Windows / Node 22 was the most frequent victim). Both scripts now accept a `--dist-dir <dir>` flag; both test files use per-test `mkdtemp` to isolate. No more flake.
+
+### Changed
+
+- `scripts/make-winget.mjs` and `scripts/make-scoop.mjs` gain a `--dist-dir <dir>` option. Default behaviour (write to `dist/`) unchanged; the flag is for callers that want to isolate.
+
 ## [0.0.13] — 2026-06-02
 
 ### Verified
@@ -291,6 +302,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.14]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.14
 [0.0.13]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.13
 [0.0.12]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.12
 [0.0.11]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.11

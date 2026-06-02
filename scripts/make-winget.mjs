@@ -14,9 +14,12 @@
 // one-time setup similar to the Homebrew tap.
 //
 // Usage:
-//   node scripts/make-winget.mjs <version>                  # writes to dist/winget/
-//   node scripts/make-winget.mjs <version> --bin-dir <dir>  # use binaries in <dir>
-//                                                          # to compute the real SHA
+//   node scripts/make-winget.mjs <version>                     # writes to dist/winget/
+//   node scripts/make-winget.mjs <version> --bin-dir <dir>     # use binaries in <dir>
+//                                                              # to compute the real SHA
+//   node scripts/make-winget.mjs <version> --dist-dir <dir>    # write to <dir>/winget/
+//                                                              # instead of dist/winget/
+//                                                              # (used by tests to isolate)
 
 import { writeFile, mkdir, readFile, access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +37,9 @@ if (!version) {
 
 const binDirIdx = process.argv.indexOf('--bin-dir');
 const binDir = binDirIdx >= 0 ? resolve(process.argv[binDirIdx + 1]) : null;
+
+const distDirIdx = process.argv.indexOf('--dist-dir');
+const distRoot = distDirIdx >= 0 ? resolve(process.argv[distDirIdx + 1]) : join(ROOT, 'dist');
 
 const baseUrl = `https://github.com/sebastienrousseau/stratos/releases/download/v${version}`;
 
@@ -119,7 +125,7 @@ ManifestType: version
 ManifestVersion: 1.6.0
 `;
 
-const outDir = join(ROOT, 'dist', 'winget');
+const outDir = join(distRoot, 'winget');
 await mkdir(outDir, { recursive: true });
 await writeFile(join(outDir, 'CloudCDN.Stratos.installer.yaml'), installer);
 await writeFile(join(outDir, 'CloudCDN.Stratos.locale.en-US.yaml'), locale);

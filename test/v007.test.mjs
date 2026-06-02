@@ -32,35 +32,45 @@ function runScript(name, args) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('make-winget --bin-dir: real SHA flows through', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-winget-'));
+  const tmpBin  = await mkdtemp(join(tmpdir(), 'stratos-winget-bin-'));
+  const tmpDist = await mkdtemp(join(tmpdir(), 'stratos-winget-dist-'));
   try {
     const payload = Buffer.from('winget smoke payload', 'utf8');
-    await writeFile(join(tmp, 'stratos-win-x64.exe'), payload);
+    await writeFile(join(tmpBin, 'stratos-win-x64.exe'), payload);
     const expectedSha = createHash('sha256').update(payload).digest('hex').toUpperCase();
 
-    const r = await runScript('make-winget.mjs', ['0.0.7', '--bin-dir', tmp]);
+    const r = await runScript('make-winget.mjs',
+      ['0.0.7', '--bin-dir', tmpBin, '--dist-dir', tmpDist]);
     assert.equal(r.code, 0);
     const installer = await readFile(
-      join(REPO, 'dist', 'winget', 'CloudCDN.Stratos.installer.yaml'), 'utf8');
+      join(tmpDist, 'winget', 'CloudCDN.Stratos.installer.yaml'), 'utf8');
     assert.match(installer, new RegExp(`InstallerSha256: ${expectedSha}`));
     assert.doesNotMatch(installer, /REPLACE_WITH_SHA256/);
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally {
+    await rm(tmpBin,  { recursive: true, force: true });
+    await rm(tmpDist, { recursive: true, force: true });
+  }
 });
 
 test('make-scoop --bin-dir: real SHA flows through', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-scoop-'));
+  const tmpBin  = await mkdtemp(join(tmpdir(), 'stratos-scoop-bin-'));
+  const tmpDist = await mkdtemp(join(tmpdir(), 'stratos-scoop-dist-'));
   try {
     const payload = Buffer.from('scoop smoke payload', 'utf8');
-    await writeFile(join(tmp, 'stratos-win-x64.exe'), payload);
+    await writeFile(join(tmpBin, 'stratos-win-x64.exe'), payload);
     const expectedSha = createHash('sha256').update(payload).digest('hex');
 
-    const r = await runScript('make-scoop.mjs', ['0.0.7', '--bin-dir', tmp]);
+    const r = await runScript('make-scoop.mjs',
+      ['0.0.7', '--bin-dir', tmpBin, '--dist-dir', tmpDist]);
     assert.equal(r.code, 0);
     const manifest = JSON.parse(await readFile(
-      join(REPO, 'dist', 'stratos.scoop.json'), 'utf8'));
+      join(tmpDist, 'stratos.scoop.json'), 'utf8'));
     assert.equal(manifest.architecture['64bit'].hash, expectedSha);
     assert.notEqual(manifest.architecture['64bit'].hash, 'REPLACE_WITH_SHA256');
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally {
+    await rm(tmpBin,  { recursive: true, force: true });
+    await rm(tmpDist, { recursive: true, force: true });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,26 +78,36 @@ test('make-scoop --bin-dir: real SHA flows through', async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('make-winget without --bin-dir: placeholder preserved', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-winget-noop-'));
+  const tmpBin  = await mkdtemp(join(tmpdir(), 'stratos-winget-noop-bin-'));
+  const tmpDist = await mkdtemp(join(tmpdir(), 'stratos-winget-noop-dist-'));
   try {
-    // Point at an empty dir so the binary lookup falls through.
-    const r = await runScript('make-winget.mjs', ['0.0.7', '--bin-dir', tmp]);
+    // Point at an empty bin dir so the binary lookup falls through.
+    const r = await runScript('make-winget.mjs',
+      ['0.0.7', '--bin-dir', tmpBin, '--dist-dir', tmpDist]);
     assert.equal(r.code, 0);
     const installer = await readFile(
-      join(REPO, 'dist', 'winget', 'CloudCDN.Stratos.installer.yaml'), 'utf8');
+      join(tmpDist, 'winget', 'CloudCDN.Stratos.installer.yaml'), 'utf8');
     assert.match(installer, /InstallerSha256: REPLACE_WITH_SHA256/);
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally {
+    await rm(tmpBin,  { recursive: true, force: true });
+    await rm(tmpDist, { recursive: true, force: true });
+  }
 });
 
 test('make-scoop without --bin-dir: placeholder preserved', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-scoop-noop-'));
+  const tmpBin  = await mkdtemp(join(tmpdir(), 'stratos-scoop-noop-bin-'));
+  const tmpDist = await mkdtemp(join(tmpdir(), 'stratos-scoop-noop-dist-'));
   try {
-    const r = await runScript('make-scoop.mjs', ['0.0.7', '--bin-dir', tmp]);
+    const r = await runScript('make-scoop.mjs',
+      ['0.0.7', '--bin-dir', tmpBin, '--dist-dir', tmpDist]);
     assert.equal(r.code, 0);
     const manifest = JSON.parse(await readFile(
-      join(REPO, 'dist', 'stratos.scoop.json'), 'utf8'));
+      join(tmpDist, 'stratos.scoop.json'), 'utf8'));
     assert.equal(manifest.architecture['64bit'].hash, 'REPLACE_WITH_SHA256');
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally {
+    await rm(tmpBin,  { recursive: true, force: true });
+    await rm(tmpDist, { recursive: true, force: true });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

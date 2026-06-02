@@ -11,9 +11,11 @@
 // Schema reference: https://github.com/ScoopInstaller/Scoop/wiki/App-Manifests
 //
 // Usage:
-//   node scripts/make-scoop.mjs <version>                   # writes dist/stratos.scoop.json
-//   node scripts/make-scoop.mjs <version> --bin-dir <dir>   # use binaries in <dir>
-//                                                          # to compute the real SHA
+//   node scripts/make-scoop.mjs <version>                      # writes dist/stratos.scoop.json
+//   node scripts/make-scoop.mjs <version> --bin-dir <dir>      # use binaries in <dir>
+//                                                              # to compute the real SHA
+//   node scripts/make-scoop.mjs <version> --dist-dir <dir>     # write to <dir>/stratos.scoop.json
+//                                                              # instead of dist/ (used by tests)
 
 import { writeFile, mkdir, readFile, access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +33,9 @@ if (!version) {
 
 const binDirIdx = process.argv.indexOf('--bin-dir');
 const binDir = binDirIdx >= 0 ? resolve(process.argv[binDirIdx + 1]) : null;
+
+const distDirIdx = process.argv.indexOf('--dist-dir');
+const distRoot = distDirIdx >= 0 ? resolve(process.argv[distDirIdx + 1]) : join(ROOT, 'dist');
 
 const baseUrl = `https://github.com/sebastienrousseau/stratos/releases/download/v${version}`;
 
@@ -83,9 +88,8 @@ const manifest = {
   },
 };
 
-const outDir = join(ROOT, 'dist');
-await mkdir(outDir, { recursive: true });
-await writeFile(join(outDir, 'stratos.scoop.json'),
+await mkdir(distRoot, { recursive: true });
+await writeFile(join(distRoot, 'stratos.scoop.json'),
   JSON.stringify(manifest, null, 2) + '\n');
 
-process.stdout.write(`wrote ${outDir}/stratos.scoop.json\n`);
+process.stdout.write(`wrote ${distRoot}/stratos.scoop.json\n`);
