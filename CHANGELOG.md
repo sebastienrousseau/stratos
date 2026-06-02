@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.13] — 2026-06-02
+
+### Verified
+
+- **First release where `tap-bump`, `scoop-bump`, and `winget-submit` actually drive the publish-side instead of skipping.** No code changes from v0.0.12 — this is a version-bump-only release whose purpose is to exercise the now-configured secrets (`HOMEBREW_TAP_TOKEN`, `SCOOP_BUCKET_TOKEN`, `WINGET_PAT`) end-to-end. Confirmation criteria: the v0.0.13 GH Release run shows actual git pushes to `sebastienrousseau/homebrew-tap` and `sebastienrousseau/scoop-bucket` and an actual PR opened against `microsoft/winget-pkgs` (instead of three `::warning::` skips).
+
 ## [0.0.12] — 2026-06-02
 
 ### Fixed
@@ -285,6 +291,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.13]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.13
 [0.0.12]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.12
 [0.0.11]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.11
 [0.0.10]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.10
