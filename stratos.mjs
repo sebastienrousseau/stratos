@@ -33,7 +33,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *
  * @type {string}
  */
-const VERSION = '0.0.10';
+const VERSION = '0.0.11';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.

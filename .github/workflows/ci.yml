@@ -51,13 +51,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: ShellCheck
-        run: shellcheck install/install.sh
+        run: shellcheck install/install.sh scripts/preflight-release.sh
       - name: PSScriptAnalyzer
         shell: pwsh
         run: |
           Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
           Invoke-ScriptAnalyzer -Path install/install.ps1 -EnableExit
         continue-on-error: true
+
+  lint-workflows:
+    # Catches the class of bug that produced the v0.0.10 / v0.0.11 ghost tags:
+    # release.yml YAML parse errors and shellcheck issues in `run:` blocks.
+    # Without this, the first signal that release.yml was broken came when
+    # the tag fired the workflow at parse time.
+    name: lint workflows (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install actionlint
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) latest "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: actionlint
+        run: actionlint -color .github/workflows/*.yml
+
+  check-versions:
+    # Single source of truth for the version string. Catches the class of
+    # bug that produced v0.0.11 (branched off main before PR #10's YAML
+    # fix merged → release.yml carried forward broken) and any future
+    # version-string drift between stratos.mjs / package.json / installers
+    # / CHANGELOG / router tests. Also asserts install.sh EXPECTED_SHA
+    # matches stratos.mjs's actual SHA — same class as the v0.0.6 bug.
+    name: check-versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: node scripts/check-versions.mjs
 
   smoke:
     name: smoke (offline commands)
