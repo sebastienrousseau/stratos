@@ -24,8 +24,8 @@ SOURCE="$CDN_BASE/dist/stratos/stratos.mjs"
 # Expected SHA-256 of stratos.mjs as delivered. Matches the source file
 # in git verbatim — `curl -o` (used below) writes the response body
 # byte-for-byte. Bumped on each release.
-EXPECTED_SHA="e004712e8e6633a06d6085e7b7a0abee64a015c6d01a59e6e276ea6420650d26"
-VERSION="0.0.8"
+EXPECTED_SHA="735027caaa4f2d795b39370f796306585b28df232e16cf3112ebfa36fb2e26bf"
+VERSION="0.0.9"
 
 # --- Styling ---
 if [ -t 1 ]; then

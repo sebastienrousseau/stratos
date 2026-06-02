@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.9] — 2026-06-02
+
+### Fixed
+
+- **README refreshed to reflect actual v0.0.9 state.** The README had stale version references and statistics carried over from much earlier releases — `Capabilities in v0.0.4`, `# → stratos v0.0.4`, `~2,669 lines`, `244 tests`, `VERSION e.g. '0.0.3'`, `100% (95/95)` functions, `90.1% (683/758)` branches. Updated every stale reference to the actual current numbers: `Capabilities in v0.0.9`, `~3,700 lines`, `385 tests`, `100% (130/130)` functions, `92.76% (988/1,065)` branches, `113 JSDoc declarations`. Also bumped the channel count from three to five (npm, single-binary, install.sh, install.ps1, Homebrew tap — Homebrew became real with v0.0.8).
+- The TOC anchor `#capabilities-in-v003` was broken (the heading was `v0.0.4`); both now agree at `v0.0.9`.
+
 ## [0.0.8] — 2026-06-02
 
 ### Fixed
@@ -242,6 +249,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.9]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.9
 [0.0.8]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.8
 [0.0.7]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.7
 [0.0.6]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.6

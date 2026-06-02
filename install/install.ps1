@@ -23,8 +23,8 @@ $Source  = "$CdnBase/dist/stratos/stratos.mjs"
 # Expected SHA-256 of stratos.mjs as delivered. Matches the source file
 # in git verbatim — Invoke-WebRequest -OutFile writes the response body
 # byte-for-byte. Bumped on each release.
-$ExpectedSha = 'e004712e8e6633a06d6085e7b7a0abee64a015c6d01a59e6e276ea6420650d26'
-$Version = '0.0.8'
+$ExpectedSha = '735027caaa4f2d795b39370f796306585b28df232e16cf3112ebfa36fb2e26bf'
+$Version = '0.0.9'
 
 function Log-Info    ($m) { Write-Host "info: $m"    -ForegroundColor Blue }
 function Log-Success ($m) { Write-Host "success: $m" -ForegroundColor Green }
