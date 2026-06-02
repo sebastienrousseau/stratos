@@ -10,21 +10,21 @@ const run = (args, env = {}) => spawnSync(process.execPath, [CLI, ...args],
   { env: { ...process.env, STRATOS_CI: '0', ...env, NO_COLOR: '1', STRATOS_NO_KEYCHAIN: '1' },
     encoding: 'utf8' });
 
-test('router: version prints v0.0.13', () => {
+test('router: version prints v0.0.14', () => {
   const r = run(['version']);
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /^stratos v0\.0\.13/);
+  assert.match(r.stdout, /^stratos v0\.0\.14/);
 });
 
 test('router: -v and --version both work', () => {
-  assert.match(run(['-v']).stdout, /v0\.0\.13/);
-  assert.match(run(['--version']).stdout, /v0\.0\.13/);
+  assert.match(run(['-v']).stdout, /v0\.0\.14/);
+  assert.match(run(['--version']).stdout, /v0\.0\.14/);
 });
 
 test('router: bare invocation prints help, exits 0', () => {
   const r = run([]);
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /stratos v0\.0\.13/);
+  assert.match(r.stdout, /stratos v0\.0\.14/);
 });
 
 test('router: unknown command exits EX_USAGE (64)', () => {
