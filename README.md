@@ -9,7 +9,7 @@
 <p align="center">
   Official command-line client and Node ESM library for
   <a href="https://cloudcdn.pro">CloudCDN</a> — the full control plane in
-  a single 2,669-line, zero-dependency Node&nbsp;≥&nbsp;20 script.
+  a single ~3,700-line, zero-dependency Node&nbsp;≥&nbsp;20 script.
 </p>
 
 <p align="center">
@@ -31,7 +31,7 @@
 - [Why a single-file CLI?](#why-a-single-file-cli)
 
 **Reference**
-- [Capabilities in v0.0.4](#capabilities-in-v003)
+- [Capabilities in v0.0.9](#capabilities-in-v009)
 - [Authentication & profiles](#authentication--profiles)
 - [Commands](#commands)
 - [Programmatic API](#programmatic-api)
@@ -52,7 +52,7 @@
 
 ## Install
 
-Stratos ships as one ES module (`stratos.mjs`, ~2,669 lines, **zero runtime dependencies**). Three distribution channels:
+Stratos ships as one ES module (`stratos.mjs`, ~3,700 lines, **zero runtime dependencies**). Five distribution channels:
 
 | Channel | Command |
 |---|---|
@@ -83,7 +83,7 @@ Both shell installers verify a pinned SHA-256 of the script *before* writing it 
 ```bash
 # Verify the install
 stratos version
-# → stratos v0.0.4
+# → stratos v0.0.9
 
 # Hit the public health endpoint
 stratos health
@@ -127,7 +127,7 @@ If those trade-offs match what you need, read on. If you'd prefer a richer SDK w
 
 ---
 
-## Capabilities in v0.0.4
+## Capabilities in v0.0.9
 
 Stratos covers ~30 commands across the full CloudCDN platform, grouped by concern.
 
@@ -365,7 +365,7 @@ await main(['health', '--cdn-url', 'http://localhost:8788', '--json']);
 | `cmdHealth`, `cmdPurge`, `cmdSigned`, `cmdAssets`, `cmdInsights`, `cmdZones`, `cmdTokens`, `cmdWebhooks`, `cmdStorage`, `cmdLogs`, `cmdAI`, `cmdImage`, `cmdSearch`, `cmdAsk` | `async function` | One per CLI subcommand |
 | `MCP_TOOLS` | `Array<{name, desc, schema}>` | The 10 tools exposed over MCP |
 | `mcpCall(name, args)` | `async function` | Invoke an MCP tool in-process |
-| `VERSION` | `string` | e.g. `'0.0.3'` |
+| `VERSION` | `string` | e.g. `'0.0.9'` |
 | `EX` | `Readonly<Object>` | Sysexits-style exit-code constants |
 
 Every export carries full JSDoc (parameters, returns, throws). IDE hover and TypeDoc-generated docs work out of the box.
@@ -530,13 +530,13 @@ Stratos is a single ES module with no runtime dependencies. The only dev-only de
 
 ```
 .
-├── stratos.mjs              # the CLI (2,669 lines, zero runtime deps)
+├── stratos.mjs              # the CLI (~3,700 lines, zero runtime deps)
 ├── install/
 │   ├── install.sh           # POSIX installer
 │   └── install.ps1          # Windows installer
 ├── scripts/
 │   └── check-docs.mjs       # zero-dep JSDoc coverage gate
-├── test/                    # 244 tests, node --test
+├── test/                    # 385 tests, node --test
 │   ├── parse.test.mjs
 │   ├── router.test.mjs
 │   ├── signed.test.mjs
@@ -560,7 +560,7 @@ Stratos is a single ES module with no runtime dependencies. The only dev-only de
 Run the suite:
 
 ```bash
-npm test                     # all 244 tests, ~8 s
+npm test                     # all 385 tests, ~9 s
 npm run coverage             # text + HTML + LCOV reports
 npm run coverage:check       # enforce 100 / 100 / 100 / 85 thresholds
 npm run docs:check           # enforce 100% JSDoc coverage
@@ -585,14 +585,14 @@ Stratos uses small `v0.0.x` increments. We will not bump to `v0.1.0` before `v0.
 
 | Metric | Result |
 |---|---|
-| Tests | **244 / 244 green** (`node --test`, zero runtime deps, ~8 s) |
-| Code: Statements | **100%** (2,669 / 2,669) |
-| Code: Lines | **100%** (2,669 / 2,669) |
-| Code: Functions | **100%** (95 / 95) |
-| Code: Branches | 90.1% (683 / 758) |
-| Docs: JSDoc declarations | **100%** (86 / 86) |
+| Tests | **385 / 385 green** (`node --test`, zero runtime deps, ~9 s) |
+| Code: Statements | **100%** (3,678 / 3,678) |
+| Code: Lines | **100%** (3,678 / 3,678) |
+| Code: Functions | **100%** (130 / 130) |
+| Code: Branches | 92.76% (988 / 1,065) |
+| Docs: JSDoc declarations | **100%** (113 / 113) |
 
-The CI gate (Node 22 / Ubuntu) runs `npm test → coverage:check → docs:check` in sequence. The build fails below any threshold. Cross-platform CI runs all 244 tests on Node 20/22/24 × { Ubuntu, macOS, Windows }.
+The CI gate (Node 22 / Ubuntu) runs `npm test → coverage:check → docs:check` in sequence. The build fails below any threshold. Cross-platform CI runs all 385 tests on Node 20/22/24 × { Ubuntu, macOS, Windows }.
 
 ---
 
