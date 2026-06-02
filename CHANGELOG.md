@@ -10,6 +10,21 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.6] — 2026-06-02
+
+### Added
+
+- **SLSA Build L3 provenance** — every release artefact (source, binaries, SBOM, VEX, Homebrew Formula, winget + scoop manifests) is now attested via the `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0` reusable workflow. The resulting `stratos-v<version>.intoto.jsonl` is attached to every GH Release. Verifiable with `slsa-verifier`.
+- **Cosign keyless signatures** on every canonical artefact (`stratos.mjs`, both installers, man page, SBOM, VEX, Homebrew Formula, every binary). `.sig` and `.crt` files attached to the GH Release; certificates logged to Rekor. Verify with `cosign verify-blob --certificate-identity-regexp "…" --certificate-oidc-issuer "…"`.
+- **winget manifests** — `dist/winget/CloudCDN.Stratos.{installer,locale.en-US,}.yaml` generated per release and packaged as `winget-manifests.tar.gz`. Schema 1.6.0. PR to `microsoft/winget-pkgs` remains a one-time setup.
+- **Scoop manifest** — `dist/stratos.scoop.json` (with `checkver` + `autoupdate` blocks) attached to every release. `cloudcdn/scoop-bucket` tap setup remains a one-time user step.
+- **Composite GitHub Action** — `actions/stratos/action.yml` consumable as `sebastienrousseau/stratos/actions/stratos@v0.0.6`. Detects host architecture, downloads the matching prebuilt binary (or falls back to npm), runs the CLI, exposes `stdout` and `exit-code` outputs. Documented in [`actions/stratos/README.md`](actions/stratos/README.md).
+
+### Changed
+
+- **Docker tag prefix dropped** — image is now published as `ghcr.io/sebastienrousseau/stratos:0.0.6` (without the `v`) plus `:latest`. Matches the convention used by upstream Node, Bun, and most OSS CLIs. The `v0.0.5` tag from the previous release remains pullable.
+- **Rich-text commands honour `--output`** — `stratos explain`, `stratos doctor`, `stratos bench`, and `stratos init` now route through `emit()` whenever `--output yaml | csv | json` (or `--json`) is set, instead of just on `--json`. A new `wantStructuredOutput()` helper centralises the check.
+
 ## [0.0.5] — 2026-06-01
 
 ### Added
@@ -200,6 +215,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.6]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.6
 [0.0.5]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.5
 [0.0.4]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.4
 [0.0.3]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.3
