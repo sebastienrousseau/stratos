@@ -19,13 +19,16 @@
 set -euo pipefail
 
 # --- Configuration ---
-CDN_BASE="${CLOUDCDN_URL:-https://cloudcdn.pro}"
-SOURCE="$CDN_BASE/dist/stratos/stratos.mjs"
+VERSION="0.0.12"
+# Default to the GitHub release asset — it's the canonical source signed
+# by the release workflow, immutable per-tag, and serves the right bytes
+# without any out-of-band CDN sync. Power users can override with
+# CLOUDCDN_URL to pull from their own edge.
+SOURCE="${CLOUDCDN_URL:-https://github.com/sebastienrousseau/stratos/releases/download/v${VERSION}/stratos.mjs}"
 # Expected SHA-256 of stratos.mjs as delivered. Matches the source file
 # in git verbatim — `curl -o` (used below) writes the response body
 # byte-for-byte. Bumped on each release.
-EXPECTED_SHA="48a1740f07be430983bb2005fbbb6ba8ed487c771bbb968f1549363e1028ff8f"
-VERSION="0.0.11"
+EXPECTED_SHA="781fd3e6618b4b42f26a9676adff9336d338f1b94439de8688c4bc936db993a5"
 
 # --- Styling ---
 if [ -t 1 ]; then
