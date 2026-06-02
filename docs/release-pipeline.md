@@ -115,6 +115,29 @@ Trusted Publisher mapping. Everything else is value-add, and the
 workflow gates each on its respective secret with an explicit
 `::warning::` so the absence is logged rather than silent.
 
+## Pre-tag validation
+
+Before you `git tag`, run the preflight:
+
+```bash
+scripts/preflight-release.sh
+```
+
+It runs every validation we have, all in one place:
+
+| Check | What it catches |
+|---|---|
+| `python3 -c 'yaml.safe_load(...)'` on every workflow | YAML parse errors (the v0.0.10/v0.0.11 ghost-tag bug) |
+| `actionlint` | `shellcheck` issues + GitHub Actions semantic checks |
+| `scripts/check-versions.mjs` | drift between `stratos.mjs` / `package.json` / installers / CHANGELOG / router tests + EXPECTED_SHA disagreement |
+| `git diff --quiet` | uncommitted changes that wouldn't make it into the tag |
+| `local main == origin/main` | branched-off-stale-main bug (v0.0.11) |
+| `new version > latest tag` | accidental backward bumps |
+| `## [<new>]` in CHANGELOG | forgotten changelog entry |
+| `npm test` + `coverage:check` + `docs:check` | the existing gates |
+
+The same checks run on every PR via `ci.yml`'s `lint-workflows` and `check-versions` jobs, so most issues are caught at PR-review time. The preflight is the last line of defence right before you tag.
+
 ## Bootstrapping a new channel
 
 To add (say) a Linux distro packaging channel — start an Arch Linux

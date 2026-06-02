@@ -42,7 +42,7 @@ runner matrix.
 ## Quick start
 
 ```yaml
-- uses: sebastienrousseau/stratos/actions/stratos@v0.0.10
+- uses: sebastienrousseau/stratos/actions/stratos@v0.0.11
   with:
     command: purge --tag build-${{ github.sha }}
   env:
@@ -56,7 +56,7 @@ runner matrix.
 | Name | Required | Default | Description |
 |---|---|---|---|
 | `command` | yes | — | CLI args to pass to `stratos`. Example: `purge --tag build-abc1234`, `assets --project=akande --output json`. |
-| `version` | no | matches the pinned ref | Stratos version to install. Override with e.g. `version: 0.0.10`. |
+| `version` | no | matches the pinned ref | Stratos version to install. Override with e.g. `version: 0.0.11`. |
 | `output`  | no | `''` | Output format hint forwarded as `--output`. One of `json` / `yaml` / `csv` / `table`. |
 
 ## Outputs
@@ -89,7 +89,7 @@ env:
 ### Cache invalidation after a deploy
 
 ```yaml
-- uses: sebastienrousseau/stratos/actions/stratos@v0.0.10
+- uses: sebastienrousseau/stratos/actions/stratos@v0.0.11
   with:
     command: purge --tag build-${{ github.sha }}
   env:
@@ -100,7 +100,7 @@ env:
 
 ```yaml
 - id: health
-  uses: sebastienrousseau/stratos/actions/stratos@v0.0.10
+  uses: sebastienrousseau/stratos/actions/stratos@v0.0.11
   with:
     command: health --deep
     output: json
@@ -110,7 +110,7 @@ env:
 ### Drift detection on `_headers`
 
 ```yaml
-- uses: sebastienrousseau/stratos/actions/stratos@v0.0.10
+- uses: sebastienrousseau/stratos/actions/stratos@v0.0.11
   with:
     command: rules diff _headers -f ./public/_headers
   env:
@@ -122,7 +122,7 @@ env:
 
 ## Pinning
 
-`@v0.0.10` pins to a tag. The action and the CLI ship from the same repo,
+`@v0.0.11` pins to a tag. The action and the CLI ship from the same repo,
 so the tag pins both. To get a newer Stratos than the action default,
 pass `with: version: <semver>` explicitly.
 

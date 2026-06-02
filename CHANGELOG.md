@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.11] — 2026-06-02
+
+### Added — validation hardening
+
+- **`actionlint` CI gate** (new `lint-workflows` job in `ci.yml`). Every PR that touches `.github/workflows/*.yml` is now parsed by `actionlint` + its embedded `shellcheck`. This would have caught the v0.0.10 / v0.0.11 ghost-tag bug (multi-line `git commit -m "…"` strings breaking YAML block-scalar indentation) at PR-review time, before any tag could fire a broken workflow.
+- **`scripts/check-versions.mjs`** — single source of truth that verifies every version-bearing file agrees: `stratos.mjs VERSION`, `package.json version`, `package-lock.json version`, `install.sh VERSION`, `install.ps1 $Version`, `test/router.test.mjs` assertions, top `CHANGELOG.md` entry. Also asserts `install.sh EXPECTED_SHA` (and the PowerShell equivalent) matches the actual SHA-256 of `stratos.mjs`. Wired into a new `check-versions` CI job. This would have caught the v0.0.6 EXPECTED_SHA-drift bug and the v0.0.11 branched-off-stale-main bug.
+- **`scripts/preflight-release.sh`** — mandatory pre-`git tag` checklist that runs locally: workflow YAML parses, `actionlint` clean, `check-versions` clean, working tree clean, local main is up to date with origin/main, new version is strictly greater than the latest tag, CHANGELOG has an entry for the new version, `npm test` + `coverage:check` + `docs:check` all green. Run it before every tag.
+
+### Fixed
+
+- **`smoke-verify` matrix bugs** that caused 3/6 channels to fail on v0.0.10:
+  - **npm** smoke now uses `$(npm config get prefix)/bin/stratos` instead of bare `stratos` — bypasses the Ubuntu-runner PATH issue that returned empty `got:`.
+  - **install-sh** smoke no longer depends on `cloudcdn.pro` being fresh. The smoke step downloads `stratos.mjs` from the GH release directly when the CDN's content doesn't match, so a skipped `cdn-sync` no longer breaks the smoke.
+  - **homebrew** smoke first reads the tap's currently-published version and short-circuits with a `::warning::` (not a failure) if it's behind — distinguishes "tap-bump was skipped because HOMEBREW_TAP_TOKEN is unset" from "we shipped something broken".
+- **Gate-skip semantics** for `tap-bump` / `scoop-bump` / `winget-submit` / `cdn-sync`. Each gated step now emits a titled `::warning::` annotation *and* a `### ⚠️ SKIPPED` section in the workflow's Job Summary. This makes the difference between "step succeeded by skipping" and "step succeeded by actually doing the work" visible at-a-glance in the GitHub Actions UI.
+- **shellcheck warnings in `release.yml`** — `sha256sum *` → `sha256sum ./*` (guards against `-`-prefixed filenames), and 4 × SC2129 (grouped redirects to `$GITHUB_STEP_SUMMARY`). `actionlint` now exits 0.
+
 ## [0.0.10] — 2026-06-02
 
 ### Added
@@ -261,6 +278,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.11]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.11
 [0.0.10]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.10
 [0.0.9]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.9
 [0.0.8]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.8

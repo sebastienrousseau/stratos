@@ -31,7 +31,7 @@
 - [Why a single-file CLI?](#why-a-single-file-cli)
 
 **Reference**
-- [Capabilities in v0.0.10](#capabilities-in-v0010)
+- [Capabilities in v0.0.11](#capabilities-in-v0011)
 - [Authentication & profiles](#authentication--profiles)
 - [Commands](#commands)
 - [Programmatic API](#programmatic-api)
@@ -87,7 +87,7 @@ Both shell installers verify a pinned SHA-256 of the script *before* writing it 
 ```bash
 # Verify the install
 stratos version
-# → stratos v0.0.10
+# → stratos v0.0.11
 
 # Hit the public health endpoint
 stratos health
@@ -131,7 +131,7 @@ If those trade-offs match what you need, read on. If you'd prefer a richer SDK w
 
 ---
 
-## Capabilities in v0.0.10
+## Capabilities in v0.0.11
 
 Stratos covers ~30 commands across the full CloudCDN platform, grouped by concern.
 
@@ -369,7 +369,7 @@ await main(['health', '--cdn-url', 'http://localhost:8788', '--json']);
 | `cmdHealth`, `cmdPurge`, `cmdSigned`, `cmdAssets`, `cmdInsights`, `cmdZones`, `cmdTokens`, `cmdWebhooks`, `cmdStorage`, `cmdLogs`, `cmdAI`, `cmdImage`, `cmdSearch`, `cmdAsk` | `async function` | One per CLI subcommand |
 | `MCP_TOOLS` | `Array<{name, desc, schema}>` | The 10 tools exposed over MCP |
 | `mcpCall(name, args)` | `async function` | Invoke an MCP tool in-process |
-| `VERSION` | `string` | e.g. `'0.0.10'` |
+| `VERSION` | `string` | e.g. `'0.0.11'` |
 | `EX` | `Readonly<Object>` | Sysexits-style exit-code constants |
 
 Every export carries full JSDoc (parameters, returns, throws). IDE hover and TypeDoc-generated docs work out of the box.

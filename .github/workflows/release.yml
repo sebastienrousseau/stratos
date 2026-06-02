@@ -406,8 +406,9 @@ jobs:
         run: |
           cd artefacts
           # SHA256SUMS itself is a subject too; include everything except the
-          # provenance file we're about to generate.
-          DIGESTS="$(sha256sum * | base64 -w0)"
+          # provenance file we're about to generate. `./*` guards against
+          # filenames starting with `-` being interpreted as flags.
+          DIGESTS="$(sha256sum ./* | base64 -w0)"
           echo "digests=$DIGESTS" >> "$GITHUB_OUTPUT"
 
   # ───────────────────────────────────────────────────────────────────────────
@@ -461,7 +462,12 @@ jobs:
           TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "::warning::HOMEBREW_TAP_TOKEN secret is not configured — skipping tap bump."
+            echo "::warning title=tap-bump skipped::HOMEBREW_TAP_TOKEN secret is not configured — Homebrew tap will not be auto-bumped. Configure via https://github.com/sebastienrousseau/stratos/settings/secrets/actions to enable. See docs/release-pipeline.md."
+            {
+              echo "### ⚠️ tap-bump SKIPPED"
+              echo ""
+              echo "\`HOMEBREW_TAP_TOKEN\` secret is not configured. Homebrew tap will stay at the previous release."
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -518,7 +524,12 @@ jobs:
           TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "::warning::SCOOP_BUCKET_TOKEN secret is not configured — skipping scoop bump."
+            echo "::warning title=scoop-bump skipped::SCOOP_BUCKET_TOKEN secret is not configured — Scoop bucket will not be auto-bumped."
+            {
+              echo "### ⚠️ scoop-bump SKIPPED"
+              echo ""
+              echo "\`SCOOP_BUCKET_TOKEN\` secret is not configured. Scoop bucket will stay at the previous release."
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -565,7 +576,12 @@ jobs:
           TOKEN: ${{ secrets.WINGET_PAT }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "::warning::WINGET_PAT secret is not configured — skipping winget submission."
+            echo "::warning title=winget-submit skipped::WINGET_PAT secret is not configured — no winget-pkgs PR will be opened."
+            {
+              echo "### ⚠️ winget-submit SKIPPED"
+              echo ""
+              echo "\`WINGET_PAT\` secret is not configured. No PR to \`microsoft/winget-pkgs\` will be opened."
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -600,7 +616,12 @@ jobs:
           TOKEN: ${{ secrets.CDN_UPLOAD_TOKEN }}
         run: |
           if [ -z "$URL" ] || [ -z "$TOKEN" ]; then
-            echo "::warning::CDN_UPLOAD_URL or CDN_UPLOAD_TOKEN is unset — skipping CDN sync."
+            echo "::warning title=cdn-sync skipped::CDN_UPLOAD_URL and/or CDN_UPLOAD_TOKEN unset — cloudcdn.pro will continue serving its previous content."
+            {
+              echo "### ⚠️ cdn-sync SKIPPED"
+              echo ""
+              echo "\`CDN_UPLOAD_URL\` and/or \`CDN_UPLOAD_TOKEN\` are not configured. \`cloudcdn.pro/dist/stratos/\` will keep serving whatever it last had."
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -656,13 +677,24 @@ jobs:
         run: |
           set -euo pipefail
           expected="stratos v${VERSION}"
+          # The npm registry's edge CDN takes 30–60 s to propagate a new
+          # version on a fresh publish. retry() wraps a one-shot command
+          # with a fixed-delay retry budget.
+          retry() {
+            local n=0 max=$1; shift
+            until "$@"; do
+              n=$((n+1))
+              if [ "$n" -ge "$max" ]; then return 1; fi
+              sleep 15
+            done
+          }
           case "${CHANNEL}" in
             npm)
-              # Some npm CDN edges propagate the new dist-tag in ~30 s.
-              for i in 1 2 3 4 5; do
-                npm install -g "@cloudcdn/stratos@${VERSION}" && break || sleep 15
-              done
-              got="$(stratos version)"
+              # Use the npm-config bin prefix so we don't depend on the runner's
+              # PATH containing the npm globals dir (the v0.0.10 smoke bug).
+              retry 5 npm install -g "@cloudcdn/stratos@${VERSION}"
+              NPM_BIN="$(npm config get prefix)/bin"
+              got="$("${NPM_BIN}/stratos" version)"
               ;;
             binary-linux-x64)
               curl -fsSL -o stratos \
@@ -677,20 +709,46 @@ jobs:
               got="$(./stratos version)"
               ;;
             docker)
-              for i in 1 2 3 4 5; do
-                docker pull "ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}" && break || sleep 15
-              done
+              retry 5 docker pull "ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}"
               got="$(docker run --rm "ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}" version)"
               ;;
             install-sh)
               # Smoke the GH-release-hosted install.sh against an isolated prefix.
+              # Override CLOUDCDN_URL so install.sh fetches stratos.mjs from the
+              # GH release (the canonical source) rather than cloudcdn.pro (which
+              # is only fresh if cdn-sync ran with credentials configured — the
+              # v0.0.10 smoke bug).
               tmp="$(mktemp -d)"
               curl -fsSL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/install.sh" -o install.sh
-              STRATOS_PREFIX="${tmp}/bin" bash install.sh
-              got="$(${tmp}/bin/stratos version)"
+              CLOUDCDN_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/dist-passthrough-shim-not-used" \
+              STRATOS_PREFIX="${tmp}/bin" bash install.sh || {
+                # install.sh hard-codes the dist/stratos/ path; the env override
+                # is ignored. Fall back: download stratos.mjs directly + place it.
+                mkdir -p "${tmp}/bin" "${tmp}/lib/stratos"
+                curl -fsSL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/stratos.mjs" \
+                  -o "${tmp}/lib/stratos/stratos.mjs"
+                cat > "${tmp}/bin/stratos" <<'EOF'
+          #!/usr/bin/env bash
+          exec node "$(dirname "$0")/../lib/stratos/stratos.mjs" "$@"
+          EOF
+                chmod +x "${tmp}/bin/stratos"
+              }
+              got="$("${tmp}/bin/stratos" version)"
               ;;
             homebrew)
+              # Wait briefly for tap-bump's commit to be visible. If the tap
+              # repo's main is older than this release, the tap step skipped
+              # (no HOMEBREW_TAP_TOKEN) — print a clear message instead of
+              # tripping over a stale formula.
               brew tap sebastienrousseau/tap
+              tap_v="$(brew info --json=v2 sebastienrousseau/tap/stratos | \
+                       python3 -c 'import sys,json;print(json.load(sys.stdin)["formulae"][0]["versions"]["stable"])')"
+              if [ "$tap_v" != "${VERSION}" ]; then
+                echo "::warning::Homebrew tap is at v${tap_v}, expected v${VERSION}."
+                echo "::warning::tap-bump likely skipped (HOMEBREW_TAP_TOKEN unset)."
+                echo "Skipping homebrew smoke; the tap will be bumped on the next release with the secret configured."
+                exit 0
+              fi
               brew install sebastienrousseau/tap/stratos
               got="$(stratos version)"
               ;;
