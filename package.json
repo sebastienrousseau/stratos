@@ -20,9 +20,9 @@
   },
   "scripts": {
     "stratos": "node stratos.mjs",
-    "test": "node --test test/parse.test.mjs test/router.test.mjs test/signed.test.mjs test/http.test.mjs test/mcp.test.mjs test/doctor-bench.test.mjs test/diff-pagination.test.mjs test/commands.test.mjs test/coverage-edge.test.mjs test/branches.test.mjs test/more-branches.test.mjs test/v003.test.mjs test/v004.test.mjs test/v005.test.mjs test/v006.test.mjs test/v007.test.mjs test/v008-mock-api.test.mjs test/v008-otel.test.mjs test/v008-flag-variants.test.mjs test/v008-coverage-push.test.mjs",
+    "test": "node --test test/parse.test.mjs test/router.test.mjs test/signed.test.mjs test/http.test.mjs test/mcp.test.mjs test/doctor-bench.test.mjs test/diff-pagination.test.mjs test/commands.test.mjs test/coverage-edge.test.mjs test/branches.test.mjs test/more-branches.test.mjs test/v003.test.mjs test/v004.test.mjs test/v005.test.mjs test/v006.test.mjs test/v007.test.mjs test/v008-mock-api.test.mjs test/v008-otel.test.mjs test/v008-flag-variants.test.mjs test/v008-coverage-push.test.mjs test/v009-branch-push.test.mjs",
     "coverage": "c8 --reporter=text --reporter=html --reporter=lcov --include='stratos.mjs' npm test",
-    "coverage:check": "c8 --include='stratos.mjs' --lines=100 --statements=100 --functions=100 --branches=92 npm test",
+    "coverage:check": "c8 --include='stratos.mjs' --lines=100 --statements=100 --functions=100 --branches=95 npm test",
     "docs:check": "node scripts/check-docs.mjs",
     "versions:check": "node scripts/check-versions.mjs",
     "preflight": "scripts/preflight-release.sh",
