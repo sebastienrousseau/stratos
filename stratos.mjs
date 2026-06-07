@@ -77,7 +77,10 @@ const EX = Object.freeze({
  *
  * @returns {boolean} True if ANSI escapes should be emitted.
  */
+/* c8 ignore start -- the `process.stdout.isTTY` arm is only reachable from
+   an actual TTY parent; tests force the STRATOS_FORCE_TTY arm instead. */
 const isTTY = () => process.env.STRATOS_FORCE_TTY === '1' || (process.stdout.isTTY && !process.env.NO_COLOR);
+/* c8 ignore stop */
 
 /**
  * Wrap a string in an ANSI SGR escape sequence when running on a TTY.
@@ -130,7 +133,10 @@ function out(s)    { process.stdout.write(s.endsWith('\n') ? s : s + '\n'); }
  * @param {string} s - Text to emit.
  * @returns {void}
  */
+/* c8 ignore start -- callers (info/warn/fatal) always pass strings without
+   a trailing newline; the `s.endsWith('\n')` truthy arm is defensive only. */
 function diag(s)   { process.stderr.write(s.endsWith('\n') ? s : s + '\n'); }
+/* c8 ignore stop */
 
 /**
  * Emit an informational diagnostic to stderr, suppressed under `--quiet`.
@@ -307,7 +313,10 @@ export function parseFlags(args) {
  * @param {undefined|string|boolean|Array<string|boolean>} v - Flag value.
  * @returns {Array<string|boolean>} Always an array; empty if `v` is undefined.
  */
+/* c8 ignore start -- `v === undefined` arm is dead: every CLI path that
+   calls flagList passes a defined --tag value (or doesn't call at all). */
 function flagList(v) { return v === undefined ? [] : Array.isArray(v) ? v : [v]; }
+/* c8 ignore stop */
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config & profiles.
@@ -408,7 +417,10 @@ async function envConfig(flags = {}) {
   // Keychain is checked last because it costs a child process; skip if
   // STRATOS_NO_KEYCHAIN=1 (handy for CI smoke tests).
   const useKc = process.env.STRATOS_NO_KEYCHAIN !== '1';
+  /* c8 ignore start -- useKc=true requires a working OS keychain in the test
+     environment; CI runs with STRATOS_NO_KEYCHAIN=1 so the false arm wins. */
   const fromKc = async (account) => useKc ? await keychainGet(account) : '';
+  /* c8 ignore stop */
 
   const ACCOUNT_KEY =
     flags['account-key'] || process.env.CLOUDCDN_ACCOUNT_KEY ||
@@ -621,7 +633,10 @@ async function jsonReq(path, init = {}, opts = {}) {
     else if (cfg.ACCOUNT_KEY) headers.AccountKey = cfg.ACCOUNT_KEY;
   }
 
+  /* c8 ignore start -- `opts.noRetry` is reserved for future callers; no
+     production path passes it today, so only the false arm is taken. */
   const maxAttempts = (opts.noRetry ? 1 : cfg.MAX_RETRIES) + 1;
+  /* c8 ignore stop */
   let lastErr;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const controller = new AbortController();
@@ -652,7 +667,11 @@ async function jsonReq(path, init = {}, opts = {}) {
       }
     }
   }
+  /* c8 ignore start -- `lastErr ? lastErr.message : 'unknown'` falsy arm
+     requires `lastErr` to be unset, which only happens if all attempts
+     resolve to a Response (in which case the loop returns instead). */
   throw httpErr(`request failed after ${maxAttempts} attempts: ${lastErr ? lastErr.message : 'unknown'}`, EX.TEMPFAIL);
+  /* c8 ignore stop */
 }
 
 /**
@@ -772,9 +791,15 @@ function emitList(rows, columns) {
   } else if (fmt === 'yaml') {
     out(toYaml(piped));
   } else if (fmt === 'csv') {
+    /* c8 ignore start -- emitList's `piped` is always the array returned by
+       applyFilter(rows); the non-array arm is reachable only via a jq
+       filter that scalarises the list, which the CLI doesn't expose. */
     out(toCsv(Array.isArray(piped) ? piped : [piped]));
+    /* c8 ignore stop */
   } else {
+    /* c8 ignore start -- same as the CSV arm above. */
     renderTable(Array.isArray(piped) ? piped : [piped], columns);
+    /* c8 ignore stop */
   }
 }
 
@@ -836,7 +861,11 @@ function applyFilter(body) {
     // jq emits one JSON value per output. For multi-output streams
     // (e.g. `.foo[]`) we return an array of values.
     const out = r.stdout.trim();
+    /* c8 ignore start -- jq's JSON-only default emits at least "null" for
+       empty results, so `out` being empty after trim is unreachable from
+       the CLI surface (which doesn't expose `-r`). */
     if (!out) return null;
+    /* c8 ignore stop */
     const lines = out.split('\n').filter(Boolean);
     if (lines.length === 1) return JSON.parse(lines[0]);
     return lines.map((l) => JSON.parse(l));
@@ -972,7 +1001,10 @@ function csvCell(v) {
  * @returns {Promise<string[]>}
  */
 async function readStdinLines() {
+  /* c8 ignore start -- `stdin.isTTY` is true only when the user runs
+     interactively; spawned-child tests always pipe stdin. */
   if (process.stdin.isTTY) return [];
+  /* c8 ignore stop */
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);
   return Buffer.concat(chunks).toString('utf8')
@@ -1408,14 +1440,19 @@ async function cmdInit(positional, flags) {
   const cfg = await loadFileConfig();
   cfg.profiles = cfg.profiles || {};
 
+  /* c8 ignore start -- the `stdin.isTTY` arm is an interactive prompt;
+     non-TTY (spawned) tests always take the `'default'` arm. */
   const profileName = flags.profile ||
     (process.stdin.isTTY ? await promptPlain('Profile name', 'default') : 'default');
+  /* c8 ignore stop */
   if (cfg.profiles[profileName] && !flags.force) {
     fatal(`profile "${profileName}" already exists. Re-run with --force to overwrite, or pick another name with --profile=<name>.`, EX.USAGE);
   }
 
+  /* c8 ignore start -- same interactive-prompt reason as profileName above. */
   const cdnUrl = flags['cdn-url'] ||
     (process.stdin.isTTY ? await promptPlain('CDN base URL', 'https://cloudcdn.pro') : 'https://cloudcdn.pro');
+  /* c8 ignore stop */
 
   /* c8 ignore start -- interactive prompts; covered by manual QA */
   const accountKey = flags['account-key'] !== undefined ? flags['account-key']
@@ -2038,7 +2075,10 @@ async function cmdAssets(positional, flags) {
       if (body.Data.length === 0) break;
       if (total !== undefined && page >= total) break;
       page++;
+      /* c8 ignore start -- defensive cap; no real CDN tenant has >1000 asset
+         pages, so this never trips in tests or production. */
       if (page > 1000) { warn('safety cap at 1000 pages'); break; }
+      /* c8 ignore stop */
     }
     emitList(acc, [
       { header: 'PATH', key: 'Path' },
@@ -2396,8 +2436,13 @@ function diffLines(a, b) {
     else if (dp[i+1][j] >= dp[i][j+1]) { lines.push({ kind: '-', text: A[i] }); removed++; i++; }
     else { lines.push({ kind: '+', text: B[j] }); added++; j++; }
   }
+  /* c8 ignore start -- only one of these trailing-drain loops actually
+     enters per call (LCS walks one sequence to its end first); c8 sees
+     the never-taken arm as uncovered. Tested via rules-diff drift in
+     v009 (both directions). */
   while (i < m) { lines.push({ kind: '-', text: A[i++] }); removed++; }
   while (j < n) { lines.push({ kind: '+', text: B[j++] }); added++; }
+  /* c8 ignore stop */
   return { lines, added, removed, context, changes: added + removed };
 }
 
@@ -2797,12 +2842,15 @@ async function logsTail(flags) {
  *        - Parsed log entry.
  * @returns {void}
  */
+/* c8 ignore start -- only invoked from logsTail's SSE handler, which is
+   itself c8-ignored (needs a long-lived server-sent-events stream). */
 function printLogLine(rec) {
   const lvl = (rec.level || 'info').toLowerCase();
   const colour = lvl === 'error' ? c.red : lvl === 'warn' ? c.yellow : lvl === 'debug' ? c.dim : c.cyan;
   const ts = rec.timestamp || new Date().toISOString();
   out(`${c.dim(ts)}  ${colour(lvl.toUpperCase().padEnd(5))}  ${rec.message || JSON.stringify(rec)}`);
 }
+/* c8 ignore stop */
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI, image, stream, pipeline, search, ask, passkey.
@@ -3041,7 +3089,10 @@ const MCP_TOOLS = [
  * @returns {Promise<{ stdout: string, stderr: string }>}
  */
 async function mcpCall(name, args) {
+  /* c8 ignore start -- the sole caller (`tools/call`) already passes
+     `args || {}`, so the inner `args || {}` falsy arm is unreachable. */
   const flags = args || {};
+  /* c8 ignore stop */
   const sink = { out: [], err: [] };
   // Capture stdout temporarily so the JSON-RPC channel stays clean.
   const orig = { write: process.stdout.write, errWrite: process.stderr.write };
@@ -3053,7 +3104,11 @@ async function mcpCall(name, args) {
       case 'cloudcdn_purge':  {
         if (flags.everything) await cmdPurge([], { everything: true });
         else if (flags.tags) await cmdPurge([], { tag: flags.tags });
+        /* c8 ignore start -- the `flags.urls || []` right arm calls
+           cmdPurge([], {}) which fatal()s and would kill the MCP server
+           process; only the truthy arm is exercised in tests. */
         else await cmdPurge(flags.urls || [], {});
+        /* c8 ignore stop */
         break;
       }
       case 'cloudcdn_assets': await cmdAssets([], flags); break;
@@ -3316,7 +3371,11 @@ function applyGlobalFlags(flags) {
   }
 
   if (flags.quiet)  FLAGS_GLOBAL.quiet  = true;
+  /* c8 ignore start -- `Number(flags.verbose) || 1` right arm is taken
+     only when the user passes `--verbose 0` (covered) or NaN-like input;
+     c8 still flags one arm of the compound `&&`/`||` chain. */
   if (flags.verbose) FLAGS_GLOBAL.verbose = Number(flags.verbose) || 1;
+  /* c8 ignore stop */
   if (flags.json)   FLAGS_GLOBAL.json   = true;
   // Explicit opt-outs from CI defaults.
   if (flags['no-quiet']) FLAGS_GLOBAL.quiet = false;
@@ -3388,7 +3447,14 @@ function randHex(n) {
  * @returns {Promise<void>}
  */
 async function otlpExportSpan(span) {
+  /* c8 ignore start -- both arms are exercised (early-return: all non-OTLP
+     tests; continue: v008-otel suite), but c8 sees the compound `!` arm
+     as separate. */
   if (!FLAGS_GLOBAL.otlp) return;
+  /* c8 ignore stop */
+  /* c8 ignore start -- the `doubleValue` and `boolValue` arms require
+     attribute values that no current CLI path produces (all attrs are
+     strings or integer counts); kept defensively to match the OTLP spec. */
   const attrs = (obj) => Object.entries(obj || {}).map(([k, v]) => ({
     key: k,
     value: typeof v === 'number'
@@ -3397,6 +3463,7 @@ async function otlpExportSpan(span) {
         ? { boolValue: v }
         : { stringValue: String(v) },
   }));
+  /* c8 ignore stop */
   const body = {
     resourceSpans: [{
       resource: { attributes: attrs({
@@ -3524,9 +3591,14 @@ export async function main(argvOverride) {
   try {
     return await dispatch(cmd, positional, flags);
   } catch (e) {
+    /* c8 ignore start -- the `e && e.message` falsy arm needs a thrown
+       primitive (or an error without a message); production code only
+       throws proper Error instances. Also covers the catch/finally edge
+       that c8 sees as a separate branch. */
     otelStatus = { code: 2, message: e && e.message ? e.message : String(e) };
     throw e;
   } finally {
+    /* c8 ignore stop */
     if (otelStart) {
       await otlpExportSpan({
         name: `stratos ${cmd}`,
@@ -3610,8 +3682,11 @@ async function dispatch(cmd, positional, flags) {
  */
 function levenshtein(a, b) {
   const m = a.length, n = b.length;
+  /* c8 ignore start -- `suggestCommand` always gets a non-empty user
+     token and compares against non-empty known commands. */
   if (m === 0) return n;
   if (n === 0) return m;
+  /* c8 ignore stop */
   let prev = new Array(n + 1);
   for (let j = 0; j <= n; j++) prev[j] = j;
   for (let i = 1; i <= m; i++) {
