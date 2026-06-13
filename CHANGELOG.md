@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.15] — 2026-06-13
+
+### Fixed
+
+- **`check-versions` CI gate was failing on `main`** because `install/install.sh` and `install/install.ps1` still pinned the v0.0.13 `EXPECTED_SHA` (`51c70dd1…`) while `stratos.mjs` had moved on. Both installer SHAs are now refreshed to match the v0.0.15 `stratos.mjs` bytes. The drift would have aborted any release tag at preflight, so this clears the path for the next release.
+- **`winget` manifests now target schema 1.12.0** (was 1.6.0). The Microsoft `winget-pkgs` repo deprecated 1.6 manifests after 2026 and new submissions on the older schema started getting rejected. Bumps `ManifestVersion` and the `$schema` URLs in the three YAMLs emitted by `scripts/make-winget.mjs`. Thanks to @DandelionSprout for the catch in [#17](https://github.com/sebastienrousseau/stratos/pull/17).
+
 ## [0.0.14] — 2026-06-02
 
 ### Fixed
@@ -302,6 +309,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.15]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.15
 [0.0.14]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.14
 [0.0.13]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.13
 [0.0.12]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.12
