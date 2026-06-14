@@ -9,7 +9,7 @@
 # Run:     docker run --rm stratos version
 # Tagging: handled by .github/workflows/release.yml on each v* tag.
 
-FROM node:24-alpine
+FROM node:26-alpine
 
 # Lay down stratos.mjs verbatim — no `npm install` needed because there
 # are no runtime dependencies. The image is exclusively the runtime
