@@ -33,7 +33,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *
  * @type {string}
  */
-const VERSION = '0.0.17';
+const VERSION = '0.0.18';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.
@@ -4049,9 +4049,38 @@ export {
   cmdSearch, cmdAsk, MCP_TOOLS, mcpCall,
 };
 
-// Script entrypoint guard.
+// Script entrypoint guard. Two distinct contexts have to be detected:
+//
+//   (a) Node, running stratos.mjs directly (`node stratos.mjs …` or via
+//       the npm bin shim). `process.argv[1]` resolves to the script
+//       path; `fileURLToPath(import.meta.url)` returns the same path.
+//       The classic Node "are we the entry?" check.
+//
+//   (b) Bun's single-file compiled binary (`bun build --compile`).
+//       `process.argv[1]` is the .exe path on disk
+//       (e.g. C:\…\stratos.exe), but `import.meta.url` resolves into
+//       Bun's virtual $bunfs filesystem (`file:///$bunfs/root/...`)
+//       and never equals the .exe path. The Node check is silently
+//       false and `main()` never runs — every stdio write is dead
+//       code. This is what shipped v0.0.15..v0.0.17 with a Windows
+//       binary that exited 0 with zero bytes of output, blocking the
+//       microsoft/winget-pkgs#382755 review.
+//
+//       Bun exposes `Bun.embeddedFiles` only when running from a
+//       compiled standalone binary; it's empty/undefined when
+//       running `stratos.mjs` from source under the Bun runtime
+//       (e.g. as a library). That makes it a clean discriminator
+//       for "I am the entry point of a compiled binary."
+//
+// Library callers (Node or Bun, importing stratos.mjs from their own
+// code) get the falsy arm of both checks and `main()` does not auto-
+// run — preserving the existing programmatic-API contract.
 /* v8 ignore start */
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+const isCompiledBunBinary = typeof Bun !== 'undefined'
+  && Array.isArray(Bun.embeddedFiles) && Bun.embeddedFiles.length > 0;
+const isNodeEntrypoint =
+  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isCompiledBunBinary || isNodeEntrypoint) {
   main().catch((e) => {
     const code = (e && e.exitCode) ? e.exitCode : EX.SOFTWARE;
     const type = (e && e.type) || (e && e.exitCode ? undefined : 'software_error');
