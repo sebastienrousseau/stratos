@@ -1,0 +1,168 @@
+# SPDX-License-Identifier: MIT
+#
+# diag-windows-binary-2 — round-2 diagnostic.
+#
+# Round 1 (diag-windows-binary.yml) proved every invocation of the
+# v0.0.17 win-x64 binary produces `exit=0 stdout-len=0` across every
+# shell, every flag form, every wrapper. The binary writes ZERO bytes
+# to stdout. Not a Stratos code-path issue, not a shell issue, not a
+# winget shim issue — the silent-stdout starts at the binary itself.
+#
+# Round 2 discriminates between three remaining hypotheses:
+#
+#   (A) Bun's `bun build --compile --target=bun-windows-x64` is
+#       broken — ANY compiled binary will be silent. Confirms by
+#       building a 2-line `process.stdout.write("hello")` script in
+#       the workflow and seeing if IT produces output.
+#
+#   (B) The v0.0.17 binary writes to stderr instead of stdout (a
+#       process.stderr ↔ process.stdout swap). Confirms by capturing
+#       stderr explicitly with `2>&1` and checking byte length.
+#
+#   (C) The binary writes to a Windows console handle that bypasses
+#       stdio redirection — output appears on screen if a real console
+#       is attached but disappears under headless / piped runs.
+#       Confirms by running with a fake-tty (or comparing direct vs
+#       redirected runs).
+
+name: diag-windows-binary-2
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag to download (without v)'
+        required: true
+        default: '0.0.17'
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun (matching release-pipeline version)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Print Bun version
+        shell: pwsh
+        run: bun --version
+
+      - name: HYPOTHESIS A — compile a 2-line hello-world for windows-x64
+        shell: pwsh
+        run: |
+          @"
+          process.stdout.write('HELLO_FROM_STDOUT\n');
+          process.stderr.write('HELLO_FROM_STDERR\n');
+          process.exit(0);
+          "@ | Out-File -Encoding utf8 hello.mjs
+          bun build --compile --target=bun-windows-x64 --outfile=hello.exe hello.mjs
+
+      - name: Probe A — run hello.exe directly
+        shell: pwsh
+        run: |
+          Write-Host "::group::hello.exe direct"
+          $stdout = & .\hello.exe 2>$null
+          $code = $LASTEXITCODE
+          Write-Host "exit=$code"
+          Write-Host "stdout: [$stdout]"
+          Write-Host "stdout-len: $($stdout.Length)"
+          Write-Host "::endgroup::"
+
+      - name: Probe A — run hello.exe with stdout+stderr combined
+        shell: pwsh
+        run: |
+          $combined = & .\hello.exe 2>&1
+          Write-Host "::group::hello.exe combined"
+          Write-Host "combined: [$combined]"
+          Write-Host "len: $($combined.Length)"
+          Write-Host "::endgroup::"
+
+      - name: Probe A — run hello.exe redirecting to files
+        shell: cmd
+        run: |
+          .\hello.exe > stdout.txt 2> stderr.txt
+          echo exit=%ERRORLEVEL%
+          echo --- stdout.txt ---
+          type stdout.txt
+          echo --- stderr.txt ---
+          type stderr.txt
+          for %%I in (stdout.txt) do @echo stdout.txt size=%%~zI
+          for %%I in (stderr.txt) do @echo stderr.txt size=%%~zI
+
+      - name: Download the v0.0.17 release binary
+        shell: pwsh
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          $url = "https://github.com/sebastienrousseau/stratos/releases/download/v$env:VERSION/stratos-win-x64.exe"
+          Invoke-WebRequest -Uri $url -OutFile stratos.exe
+
+      - name: HYPOTHESIS B — capture v0.0.17 binary stderr explicitly
+        shell: cmd
+        run: |
+          .\stratos.exe --version > v17-stdout.txt 2> v17-stderr.txt
+          echo exit=%ERRORLEVEL%
+          echo --- v17-stdout.txt ---
+          type v17-stdout.txt
+          echo --- v17-stderr.txt ---
+          type v17-stderr.txt
+          for %%I in (v17-stdout.txt) do @echo v17-stdout.txt size=%%~zI
+          for %%I in (v17-stderr.txt) do @echo v17-stderr.txt size=%%~zI
+
+      - name: HYPOTHESIS B — try v0.0.17 binary with combined output
+        shell: pwsh
+        run: |
+          $combined = & .\stratos.exe --version 2>&1
+          Write-Host "::group::v17 combined --version"
+          Write-Host "combined: [$combined]"
+          Write-Host "len: $($combined | Out-String | Measure-Object -Character).Characters"
+          Write-Host "::endgroup::"
+          $combined = & .\stratos.exe --help 2>&1
+          Write-Host "::group::v17 combined --help"
+          Write-Host "combined: [$combined]"
+          Write-Host "len: $($combined | Out-String | Measure-Object -Character).Characters"
+          Write-Host "::endgroup::"
+          $combined = & .\stratos.exe version 2>&1
+          Write-Host "::group::v17 combined version"
+          Write-Host "combined: [$combined]"
+          Write-Host "len: $($combined | Out-String | Measure-Object -Character).Characters"
+          Write-Host "::endgroup::"
+
+      - name: HYPOTHESIS C — Start-Process so the binary attaches to a console
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath .\stratos.exe -ArgumentList '--version' `
+            -RedirectStandardOutput 'sp-stdout.txt' `
+            -RedirectStandardError 'sp-stderr.txt' `
+            -Wait -PassThru -NoNewWindow
+          Write-Host "Start-Process exit=$($p.ExitCode)"
+          Write-Host "::group::Start-Process stdout"
+          Write-Host (Get-Content sp-stdout.txt -Raw)
+          Write-Host "::endgroup::"
+          Write-Host "::group::Start-Process stderr"
+          Write-Host (Get-Content sp-stderr.txt -Raw)
+          Write-Host "::endgroup::"
+          Write-Host "stdout size: $((Get-Item sp-stdout.txt).Length) bytes"
+          Write-Host "stderr size: $((Get-Item sp-stderr.txt).Length) bytes"
+
+      - name: Sanity — what platform does the binary think it's on?
+        shell: pwsh
+        run: |
+          # If the binary embeds Bun + stratos.mjs and process.platform
+          # is correctly 'win32', this prints. If Bun's process object
+          # is misconfigured, the silent failure may be reproduced.
+          @"
+          process.stdout.write('platform=' + process.platform + '\n');
+          process.stdout.write('arch=' + process.arch + '\n');
+          process.stdout.write('isTTY=' + (process.stdout.isTTY ?? 'undefined') + '\n');
+          process.stdout.write('writable=' + process.stdout.writable + '\n');
+          "@ | Out-File -Encoding utf8 probe.mjs
+          bun build --compile --target=bun-windows-x64 --outfile=probe.exe probe.mjs
+          .\probe.exe
