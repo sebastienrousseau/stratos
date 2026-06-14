@@ -386,12 +386,13 @@ test('storage sync: empty directory makes 0 batches', async () => {
 });
 
 test('storage sync: nested dirs walked recursively', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-nest-'));
-  const { mkdir } = await import('node:fs/promises');
-  await mkdir(join(tmp, 'sub'), { recursive: true });
-  await writeFile(join(tmp, 'a.html'), 'a');
-  await writeFile(join(tmp, 'sub', 'b.html'), 'b');
+  let tmp;
   try {
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-nest-'));
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(tmp, 'sub'), { recursive: true });
+    await writeFile(join(tmp, 'a.html'), 'a');
+    await writeFile(join(tmp, 'sub', 'b.html'), 'b');
     let received;
     await withServer((req, res) => {
       let body = '';
@@ -407,14 +408,15 @@ test('storage sync: nested dirs walked recursively', async () => {
       const paths = received.files.map((f) => f.path).sort();
       assert.deepEqual(paths, ['/x/a.html', '/x/sub/b.html']);
     });
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally { if (tmp) await rm(tmp, { recursive: true, force: true }); }
 });
 
 test('pipeline submit: flags map alternate names (--gen-favicons etc)', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-pl-'));
-  const svg = join(tmp, 'logo.svg');
-  await writeFile(svg, '<svg/>');
+  let tmp;
   try {
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-pl-'));
+    const svg = join(tmp, 'logo.svg');
+    await writeFile(svg, '<svg/>');
     let received;
     await withServer((req, res) => {
       let body = '';
@@ -433,7 +435,7 @@ test('pipeline submit: flags map alternate names (--gen-favicons etc)', async ()
       assert.equal(received.generateIcons, true);
       assert.equal(received.generateBanners, true);
     });
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally { if (tmp) await rm(tmp, { recursive: true, force: true }); }
 });
 
 test('insights summary: --zone forwarded', async () => {

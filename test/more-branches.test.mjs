@@ -280,10 +280,11 @@ test('parseFlags: --flag=empty-value (zero-length value after =)', async () => {
 
 test('parseFlags: -f short flag value-taking arm', async () => {
   // `rules set _headers -f path` — -f takes the value.
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-r-'));
-  const f = join(tmp, '_headers');
-  await writeFile(f, '/api/* X-K: V\n');
+  let tmp;
   try {
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-r-'));
+    const f = join(tmp, '_headers');
+    await writeFile(f, '/api/* X-K: V\n');
     await withServer((req, res) => {
       let body = '';
       req.on('data', (c) => body += c);
@@ -293,7 +294,7 @@ test('parseFlags: -f short flag value-taking arm', async () => {
         { CLOUDCDN_URL: base, CLOUDCDN_ACCOUNT_KEY: 'k' });
       assert.equal(r.status, 0);
     });
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally { if (tmp) await rm(tmp, { recursive: true, force: true }); }
 });
 
 test('storage put: AccessKey-only header for read', async () => {

@@ -12,6 +12,8 @@ is **does it deserve to be in the only file every user runs?**
    passes ~2000 LoC and a clean seam exists.
 3. **Tests are required.** Every new command needs at least one test in
    `test/`. Use the in-process mock HTTP server for integration tests.
+   **Open resources inside a `try` block** — see *Resource lifecycle in
+   tests* below.
 4. **JSDoc on every declaration.** `npm run docs:check` enforces 100%
    coverage on `stratos.mjs`. New functions need a one-sentence summary,
    `@param` for each argument, and `@returns` for non-void returns.
@@ -60,6 +62,57 @@ CLOUDCDN_URL=http://localhost:8788 node stratos.mjs health
 8. Update `README.md` (the commands table) and `CHANGELOG.md` (under
    `## [Unreleased]`).
 
+## Resource lifecycle in tests
+
+Tests that allocate something needing cleanup (an HTTP listener via
+`startServer(...)`, or a temp directory via `mkdtemp(...)`) **must
+open every such resource inside a `try { ... } finally { ... }`
+block**. The lint script (`npm run tests:lint`, also a CI gate) refuses
+to merge code that violates this rule.
+
+The history: v0.0.14 → v0.0.15 had a test that started a mock server,
+then called `mkdtemp(process.env.TMPDIR || '/tmp', …)` before the
+`try`. On Windows the hard-coded `/tmp` doesn't exist, so `mkdtemp`
+threw, the server stayed open, and the open listener kept the Node test
+process alive for the workflow's full 6h cap — 54 wasted compute-hours
+per run, 9 cells × 6h.
+
+**Safe shape (always use this):**
+
+```js
+test('something', async () => {
+  let srv, tmp, base;
+  try {
+    ({ srv, base } = await startServer(handler));
+    tmp = await mkdtemp(join(tmpdir(), 'x-'));
+    // … use srv, tmp, base …
+  } finally {
+    if (srv) srv.close();
+    if (tmp) await rm(tmp, { recursive: true, force: true });
+  }
+});
+```
+
+Lighter shape (also OK if only one opener and the very next statement
+is `try {`, with no intervening `await`):
+
+```js
+test('simple', async () => {
+  const { srv } = await startServer(handler);
+  try {
+    // …
+  } finally { srv.close(); }
+});
+```
+
+If you legitimately need an exception (rare), add `// lint-tests-allow-next:
+<reason>` above the offending line. File-level opt-out (`// lint-tests-skip-file:
+<reason>` in the first 10 lines) exists for meta-tests that intentionally
+embed leak patterns as fixtures.
+
+See `scripts/lint-tests.mjs` for the precise rule and
+`test/v016-lint-tests.test.mjs` for the regression coverage.
+
 ## What we will reject
 
 - **Anything that adds a dependency** — unless it's a Node-stdlib import.
@@ -74,6 +127,7 @@ CLOUDCDN_URL=http://localhost:8788 node stratos.mjs health
 ## Reviewing your own PR before submitting
 
 - [ ] `npm test` passes locally on Node 20 *and* 22.
+- [ ] `npm run tests:lint` passes (resource-leak rule).
 - [ ] No new files outside `stratos.mjs`, `test/`, `install/`, `examples/`,
       `.github/`, top-level docs.
 - [ ] No `console.log` left behind. Use `out()`, `info()`, `warn()`, `fatal()`.

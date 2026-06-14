@@ -122,16 +122,17 @@ test('4xx error branch: storage get raw fetch (L2585)', async () => {
 
 // storage sync hits the batch endpoint (L2672).
 test('4xx error branch: storage sync batch (L2672)', async () => {
-  const { srv, base } = await startServer(fail4xx());
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-sync-'));
+  let srv, tmp, base;
   try {
+    ({ srv, base } = await startServer(fail4xx()));
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-sync-'));
     await writeFile(join(tmp, 'a.txt'), 'a');
     const r = await run(['storage', 'sync', tmp, 'remote/'],
       { ...COMMON_AUTH, CLOUDCDN_URL: base });
     assert.equal(r.status, 69);
   } finally {
-    srv.close();
-    await rm(tmp, { recursive: true, force: true });
+    if (srv) srv.close();
+    if (tmp) await rm(tmp, { recursive: true, force: true });
   }
 });
 
@@ -290,17 +291,18 @@ test('assets list --all + verbose: undefined TotalPages renders "?" (L2037)', as
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('rules set: --file long flag (L2347)', async () => {
-  const { srv, base } = await startServer(json({ ok: true }));
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-rs-'));
+  let srv, tmp, base;
   try {
+    ({ srv, base } = await startServer(json({ ok: true })));
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-rs-'));
     const f = join(tmp, 'rules.txt');
     await writeFile(f, 'rules here\n');
     const r = await run(['rules', 'set', '_headers', '--file', f],
       { ...COMMON_AUTH, CLOUDCDN_URL: base });
     assert.equal(r.status, 0);
   } finally {
-    srv.close();
-    await rm(tmp, { recursive: true, force: true });
+    if (srv) srv.close();
+    if (tmp) await rm(tmp, { recursive: true, force: true });
   }
 });
 
