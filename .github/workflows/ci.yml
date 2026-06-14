@@ -20,6 +20,11 @@ jobs:
   test:
     name: test (node ${{ matrix.node }} · ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Fail-fast cap. The default 6h timeout is wasted when a test leaks a
+    # handle (e.g. the v0.0.14 → v0.0.15 Windows hang where a test's
+    # mkdtemp threw between startServer and try/finally, leaving the
+    # listener open and the Node test process unable to exit).
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
