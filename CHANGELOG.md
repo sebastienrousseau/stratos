@@ -22,11 +22,8 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 ### Fixed
 
 - **`stratos help <cmd>` now works for every command** in `KNOWN_COMMANDS`, not just the ~24 with curated entries in `HELP_BY_COMMAND`. Falls back to a synthesised `stratos <cmd>\n  <summary>\n  Exit codes: <list>` from `COMMAND_META` when no hand-tuned entry exists. Closes the "stratos help stats / audit / analytics / ask / search / upgrade / logout / stream / pipeline / passkey returns EX.USAGE" surface that the regression suite caught on first run.
-- Bumps `EXPECTED_SHA` in `install/install.{sh,ps1}` to match the v0.0.17 bytes (`1f86af83…`).
-
-### Known limitations surfaced (not fixed in this release)
-
-- `applyFilter()` splits jq's stdout by newlines and parses each as a separate JSON value, so filters that produce pretty-printed multi-line single documents (e.g. `{status, edge}` without `-c`) fail with "jq produced non-JSON output". Single-line expressions (`.status`, `.foo | length`) and per-line streams (`.[].id`) work fine. Adding `-c` to the jq invocation is a one-line product fix tracked as a follow-up. Pinned in the regression suite.
+- **`--filter` now handles all jq output shapes.** `applyFilter()` parses each line of jq's stdout as an independent JSON value, so filters that produced pretty-printed multi-line single documents (e.g. `{status, edge}`) used to fail with "jq produced non-JSON output". Fixed by passing `-c` (compact) to jq — every line is now a complete JSON document, so single values, stream-style outputs (`.[].id`), and object projections (`{a, b}`) all work uniformly. Single-line expressions and per-line streams were already working; this just closes the multi-line gap. Discovered by the v017 regression-output-matrix suite on first run.
+- Bumps `EXPECTED_SHA` in `install/install.{sh,ps1}` to match the v0.0.17 bytes.
 
 ## [0.0.16] — 2026-06-14
 

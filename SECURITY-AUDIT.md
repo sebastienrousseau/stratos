@@ -7,7 +7,7 @@ areas under active hardening. It complements
 vulnerability) and is intended for security reviewers, downstream
 distributors, and anyone evaluating Stratos for production use.
 
-Last updated for v0.0.16.
+Last updated for v0.0.17.
 
 ## Trust model
 
@@ -190,16 +190,16 @@ either as a roadmap item in `~/Drop/stratos-ip.md` or as an issue.
 
 ```bash
 # Get the release.
-gh release download v0.0.16 --repo sebastienrousseau/stratos
+gh release download v0.0.17 --repo sebastienrousseau/stratos
 
 # Verify npm provenance.
 npm audit signatures @cloudcdn/stratos@0.0.16
 
 # Verify the SLSA bundle.
 slsa-verifier verify-artifact stratos.mjs \
-  --provenance-path stratos-v0.0.16.intoto.jsonl \
+  --provenance-path stratos-v0.0.17.intoto.jsonl \
   --source-uri github.com/sebastienrousseau/stratos \
-  --source-tag v0.0.16
+  --source-tag v0.0.17
 
 # Verify the Cosign signature.
 cosign verify-blob \

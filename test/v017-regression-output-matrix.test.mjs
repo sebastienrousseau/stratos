@@ -252,19 +252,9 @@ test('output-matrix: invalid --output rejected with EX.USAGE', async () => {
 // ─── --filter (jq pipeline) sanity
 // ────────────────────────────────────────────────────────────────────
 
-test('output-matrix: --filter applies a jq expression before emit', async () => {
-  // Only run if `jq` is on PATH — Stratos's --filter requires it.
+test('output-matrix: --filter (single-line value)', async () => {
   const { spawnSync } = await import('node:child_process');
-  const has = spawnSync('jq', ['--version']);
-  if (has.status !== 0) return;  // skip silently if jq missing
-
-  // Known limitation: applyFilter() splits jq's stdout by newlines and
-  // parses each as a separate JSON value. So filters that produce
-  // pretty-printed multi-line single documents (e.g. `{status, edge}`
-  // without `-c`) fail with "jq produced non-JSON output". Filters
-  // that produce a single-line value (`.status`, `.foo | length`) or
-  // a single-document-per-line stream (`.[].id`) work fine. Tracked
-  // as a follow-up; this test pins the working subset.
+  if (spawnSync('jq', ['--version']).status !== 0) return;  // skip if jq missing
   let srv, base;
   try {
     ({ srv, base } = await startServer(json({ status: 'ok', edge: 'lhr-1' })));
@@ -272,8 +262,41 @@ test('output-matrix: --filter applies a jq expression before emit', async () => 
       ['health', '--filter', '.status', '--output', 'json'],
       { ...AUTH, CLOUDCDN_URL: base });
     assert.equal(r.status, 0, `exit=${r.status} stderr=${r.stderr}`);
-    const parsed = JSON.parse(r.stdout);
-    assert.equal(parsed, 'ok');
+    assert.equal(JSON.parse(r.stdout), 'ok');
+  } finally { if (srv) srv.close(); }
+});
+
+test('output-matrix: --filter (object-projection — the v0.0.17 jq -c fix)', async () => {
+  // Pre-v0.0.17, `{status, edge}` failed because jq pretty-prints
+  // multi-line objects by default and applyFilter() parses one JSON
+  // value per stdout line. The `-c` flag (added in v0.0.17) makes
+  // every line a complete document. This test pins the fix.
+  const { spawnSync } = await import('node:child_process');
+  if (spawnSync('jq', ['--version']).status !== 0) return;
+  let srv, base;
+  try {
+    ({ srv, base } = await startServer(json({ status: 'ok', edge: 'lhr-1', region: 'eu' })));
+    const r = await run(
+      ['health', '--filter', '{status, edge}', '--output', 'json'],
+      { ...AUTH, CLOUDCDN_URL: base });
+    assert.equal(r.status, 0, `exit=${r.status} stderr=${r.stderr}`);
+    assert.deepEqual(JSON.parse(r.stdout), { status: 'ok', edge: 'lhr-1' });
+  } finally { if (srv) srv.close(); }
+});
+
+test('output-matrix: --filter (stream-style — array-yielding expressions)', async () => {
+  // `.[].name` against a list yields N values, one per jq output
+  // line. applyFilter() collects them into a JS array.
+  const { spawnSync } = await import('node:child_process');
+  if (spawnSync('jq', ['--version']).status !== 0) return;
+  let srv, base;
+  try {
+    ({ srv, base } = await startServer(json(tokenList)));
+    const r = await run(
+      ['tokens', 'list', '--filter', '.[].name', '--output', 'json'],
+      { ...AUTH, CLOUDCDN_URL: base });
+    assert.equal(r.status, 0, `exit=${r.status} stderr=${r.stderr}`);
+    assert.deepEqual(JSON.parse(r.stdout), ['one', 'two', 'three']);
   } finally { if (srv) srv.close(); }
 });
 

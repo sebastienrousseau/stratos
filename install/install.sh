@@ -28,7 +28,7 @@ SOURCE="${CLOUDCDN_URL:-https://github.com/sebastienrousseau/stratos/releases/do
 # Expected SHA-256 of stratos.mjs as delivered. Matches the source file
 # in git verbatim — `curl -o` (used below) writes the response body
 # byte-for-byte. Bumped on each release.
-EXPECTED_SHA="1f86af835c2a52f44898e1067cb246417115aa464e0bd9a5e47de81eca19ca22"
+EXPECTED_SHA="df54cd0dbf085d886f5fea50c767339e403a1e64452de506b9b7d08954f27bd2"
 
 # --- Styling ---
 if [ -t 1 ]; then

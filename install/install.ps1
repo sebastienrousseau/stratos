@@ -29,7 +29,7 @@ $Source = if ($env:CLOUDCDN_URL) {
 # Expected SHA-256 of stratos.mjs as delivered. Matches the source file
 # in git verbatim — Invoke-WebRequest -OutFile writes the response body
 # byte-for-byte. Bumped on each release.
-$ExpectedSha = '1f86af835c2a52f44898e1067cb246417115aa464e0bd9a5e47de81eca19ca22'
+$ExpectedSha = 'df54cd0dbf085d886f5fea50c767339e403a1e64452de506b9b7d08954f27bd2'
 
 function Log-Info    ($m) { Write-Host "info: $m"    -ForegroundColor Blue }
 function Log-Success ($m) { Write-Host "success: $m" -ForegroundColor Green }

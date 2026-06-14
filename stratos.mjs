@@ -982,7 +982,13 @@ function applyFilter(body) {
   const expr = FLAGS_GLOBAL.filter;
   if (!expr) return body;
   const { spawnSync } = jqShim;
-  const r = spawnSync('jq', [expr], { input: JSON.stringify(body), encoding: 'utf8' });
+  // jq runs with -c so every output line is a complete compact JSON
+  // value. Without -c, jq pretty-prints objects across multiple
+  // lines and applyFilter's line-by-line parser would fail on the
+  // first opening brace. With -c, single scalars, object
+  // projections, and stream-style outputs all emit one document per
+  // line uniformly.
+  const r = spawnSync('jq', ['-c', expr], { input: JSON.stringify(body), encoding: 'utf8' });
   /* c8 ignore next 3 -- depends on jq being absent; covered by manual QA */
   if (r.error && r.error.code === 'ENOENT') {
     fatal('--filter requires `jq` on PATH (https://stedolan.github.io/jq/).', EX.CONFIG);

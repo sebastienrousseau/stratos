@@ -98,7 +98,7 @@ Both shell installers verify a pinned SHA-256 of the script *before* writing it 
 ```bash
 # Verify the install
 stratos version
-# → stratos v0.0.16
+# → stratos v0.0.17
 
 # Hit the public health endpoint
 stratos health
@@ -399,7 +399,7 @@ console.log({ positional, flags });
 // integration-test.mjs — invoke any command in-process.
 import { main, VERSION, EX } from '@cloudcdn/stratos';
 
-console.log(`Driving stratos v${VERSION}`);          // → Driving stratos v0.0.16
+console.log(`Driving stratos v${VERSION}`);          // → Driving stratos v0.0.17
 console.log(`Exit codes: ${JSON.stringify(EX)}`);    // → { OK: 0, USAGE: 64, ... }
 
 // Same argv shape as the CLI; same exits, same stdout/stderr discipline.
