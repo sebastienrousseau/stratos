@@ -9,7 +9,7 @@
 <p align="center">
   Official command-line client and Node ESM library for
   <a href="https://cloudcdn.pro">CloudCDN</a> — the full control plane in
-  a single ~3,700-line, zero-dependency Node&nbsp;≥&nbsp;20 script.
+  a single ~4,000-line, zero-dependency Node&nbsp;≥&nbsp;20 script.
 </p>
 
 <p align="center">
@@ -19,6 +19,7 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge" alt="MIT" /></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%E2%89%A520-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 20+" /></a>
   <a href="#tests--coverage"><img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=for-the-badge" alt="Coverage 100%" /></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/sebastienrousseau/stratos"><img src="https://img.shields.io/ossf-scorecard/github.com/sebastienrousseau/stratos?style=for-the-badge&label=OpenSSF%20Scorecard&logo=openssf" alt="OpenSSF Scorecard" /></a>
 </p>
 
 ---
@@ -26,19 +27,28 @@
 ## Contents
 
 **Getting started**
-- [Install](#install)
-- [Quick Start](#quick-start)
-- [Why a single-file CLI?](#why-a-single-file-cli)
 
-**Reference**
-- [Capabilities in v0.0.15](#capabilities-in-v0015)
-- [Authentication & profiles](#authentication--profiles)
-- [Commands](#commands)
-- [Programmatic API](#programmatic-api)
-- [MCP server](#mcp-server)
-- [Output, exit codes, environment](#output-exit-codes-environment)
+- [Install](#install) — eight channels, SHA-pinned installer
+- [Quick Start](#quick-start) — verify, authenticate, purge in five lines
+- [Why a single-file CLI?](#why-a-single-file-cli) — design rationale
+
+**Companion artefacts**
+
+- [Companion artefacts](#companion-artefacts) — composite GitHub Action, MCP server, Docker image
+- [Migrating from another CDN CLI](#migrating-from-another-cdn-cli) — Wrangler, Fastly CLI, Codex CLI
+
+**CLI reference**
+
+- [Capabilities](#capabilities) — release inventory
+- [Authentication & profiles](#authentication--profiles) — env, profile, keychain
+- [Commands](#commands) — full command table
+- [Programmatic API](#programmatic-api) — drive Stratos in-process
+- [MCP server](#mcp-server) — agent integration
+- [Machine-readable schema](#machine-readable-schema) — `stratos schema`
+- [Output, exit codes, typed errors](#output-exit-codes-typed-errors) — pipeline contract
 
 **Operational**
+
 - [Examples](#examples)
 - [When not to use Stratos](#when-not-to-use-stratos)
 - [Integrity & supply chain](#integrity--supply-chain)
@@ -46,6 +56,7 @@
 - [Tests & coverage](#tests--coverage)
 - [Release pipeline](docs/release-pipeline.md)
 - [Security](#security)
+- [Governance](#governance)
 - [Documentation](#documentation)
 - [License](#license)
 
@@ -53,7 +64,7 @@
 
 ## Install
 
-Stratos ships as one ES module (`stratos.mjs`, ~3,700 lines, **zero runtime dependencies**). Eight distribution channels:
+Stratos ships as one ES module (`stratos.mjs`, ~4,000 lines, **zero runtime dependencies**). Eight distribution channels:
 
 | Channel | Command |
 |---|---|
@@ -87,7 +98,7 @@ Both shell installers verify a pinned SHA-256 of the script *before* writing it 
 ```bash
 # Verify the install
 stratos version
-# → stratos v0.0.15
+# → stratos v0.0.16
 
 # Hit the public health endpoint
 stratos health
@@ -101,6 +112,12 @@ export CLOUDCDN_ACCOUNT_KEY="cdnsk_…"
 stratos purge https://cloudcdn.pro/akande/v1/logos/logo.svg
 stratos purge --tag "build-${GITHUB_SHA}" --tag project-akande
 cat urls.txt | stratos purge -      # batch invalidate from stdin
+
+# Stream NDJSON into jq for downstream pipelines
+stratos assets --all --output ndjson | jq -r '.Path'
+
+# Introspect the surface (agent caller's gateway)
+stratos schema --output ndjson | jq -r 'select(.mcp_tool) | "\(.name) → \(.mcp_tool)"'
 ```
 
 ### In-terminal demos
@@ -123,17 +140,44 @@ Most edge-platform CLIs ship as 30–80 MB Node bundles with hundreds of transit
 - **Zero runtime dependencies** — only Node ≥ 20 standard library. No transitive supply-chain exposure. Zero `node_modules` in the install footprint.
 - **One SHA-pin** — installers verify a single SHA-256 of the script before touching disk. Tampered CDN responses fail the check before anything is executed.
 - **Cold-start under 70 ms on M-series** — measured by `stratos bench`. Suitable for CI hot loops and shell pipelines.
-- **Errors to stderr, machine output to stdout** — pipelines like `stratos assets --json | jq …` stay clean.
-- **Sysexits-style exit codes** — `make` and shell `||` chains can branch on cause (`64 USAGE`, `77 NOPERM`, `75 TEMPFAIL`, …).
+- **Errors to stderr, machine output to stdout** — pipelines like `stratos assets --output ndjson | jq …` stay clean.
+- **Sysexits-style exit codes** *and* **stable typed errors** — `make` and shell `||` chains can branch on cause (`64 USAGE`, `77 NOPERM`, `75 TEMPFAIL`, …); agents drive backoff loops from `error.type` and `error.retryable`.
 - **CLI is also a library** — every command is an exported ESM function; the test suite drives it in-process and you can too.
 
 If those trade-offs match what you need, read on. If you'd prefer a richer SDK with a build pipeline, see [When not to use Stratos](#when-not-to-use-stratos).
 
 ---
 
-## Capabilities in v0.0.15
+## Companion artefacts
 
-Stratos covers ~30 commands across the full CloudCDN platform, grouped by concern.
+Three artefacts ship from this repo. The CLI is the core; the others wrap it for specific delivery surfaces.
+
+| Artefact | What it is | Use case |
+|---|---|---|
+| **`@cloudcdn/stratos`** | The CLI and library (this README) | Local terminal, CI, scripts, in-process integration |
+| **`sebastienrousseau/stratos/actions/stratos@v<x>`** | Composite GitHub Action | Drop-in CI step; auto-detects `GITHUB_ACTIONS`, emits `::error::` workflow commands on non-zero exit. See [`actions/stratos/README.md`](actions/stratos/README.md). |
+| **`stratos mcp serve`** | Model Context Protocol stdio server (bundled) | Claude Code, Cursor, Continue.dev, Zed assistant, any MCP host — see [MCP server](#mcp-server) |
+| **`ghcr.io/sebastienrousseau/stratos`** | Multi-arch Docker image (`linux/amd64`, `linux/arm64`) | Containerised CI runners; `docker run --rm ghcr.io/sebastienrousseau/stratos:latest version` |
+
+---
+
+## Migrating from another CDN CLI
+
+Three step-by-step guides covering the equivalent commands, authentication mapping, and behavioural differences:
+
+| Coming from… | Guide |
+|---|---|
+| **Cloudflare Wrangler** | [`examples/migrate-from-wrangler.md`](examples/migrate-from-wrangler.md) |
+| **Fastly CLI** | [`examples/migrate-from-fastly.md`](examples/migrate-from-fastly.md) |
+| **OpenAI Codex CLI** *(agentic-CLI patterns)* | [`examples/migrate-from-codex.md`](examples/migrate-from-codex.md) |
+
+> Agent harnesses can introspect Stratos's full verb + error surface in one call via `stratos schema --output ndjson` — no `--help` parsing required. See [Machine-readable schema](#machine-readable-schema).
+
+---
+
+## Capabilities
+
+Stratos covers ~35 commands across the full CloudCDN platform, grouped by concern.
 
 | Theme | Capabilities |
 |---|---|
@@ -143,11 +187,11 @@ Stratos covers ~30 commands across the full CloudCDN platform, grouped by concer
 | **Config-as-code** | `_headers` / `_redirects` get / set / **LCS-based diff** (exits non-zero on drift, git-style) |
 | **Auth & secrets** | Scoped API tokens, webhook subscriptions, `stratos login` → **OS keychain** (macOS `security`, libsecret, Windows `cmdkey`) |
 | **Storage** | Single-file CRUD plus recursive `sync` over the batch endpoint, 50 files / request |
-| **Observability** | SSE-streamed live `logs tail`, historical `logs query`, `doctor` env diagnostic, `bench` cold-start + latency sampler |
+| **Observability** | SSE-streamed live `logs tail`, historical `logs query`, `doctor` env diagnostic, `bench` cold-start + latency sampler, **OTLP/HTTP tracing** via `--otlp-endpoint` (one span per command) |
 | **AI & media** | Alt-text, moderation, smart-crop, background-remove; on-the-fly image `transform`, BlurHash, LQIP, format negotiation, HLS playlist builder |
 | **Pipeline & discovery** | SVG-driven asset scaffolding, hybrid vector + fuzzy `search`, AI concierge (`ask`) |
-| **Agent integration** | **`stratos mcp serve`** — Model Context Protocol stdio server exposing 10 CloudCDN tools to Claude Code, Cursor, and every MCP host |
-| **Operator UX** | Shell completions (bash/zsh/fish/PowerShell), XDG-compliant profiles, `--json`, `-q`, `--verbose`, configurable `--timeout` and `--retries` with full-jitter backoff |
+| **Agent integration** | `stratos mcp serve` (10 tools / 6 resources / 4 prompts), **`stratos schema`** machine-readable command catalogue, **`--output ndjson`** streaming, **stable typed errors** (`error.type` + `retryable`) |
+| **Operator UX** | Shell completions (bash/zsh/fish/PowerShell), XDG-compliant profiles, `--json`, `--output ndjson\|yaml\|csv\|table`, `--filter <jq>`, `-q`, `--verbose`, `--rate <n>/s` client-side throttle, configurable `--timeout` / `--retries` with full-jitter backoff |
 
 ---
 
@@ -170,6 +214,8 @@ Configuration is resolved from four sources, highest precedence first:
 | `CLOUDCDN_TIMEOUT` | Per-request timeout, ms | `15000` |
 | `CLOUDCDN_RETRIES` | Max retries on 429 / 5xx / network | `3` |
 | `STRATOS_NO_KEYCHAIN` | Set to `1` to skip OS-keychain lookups | unset |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP/HTTP traces endpoint (alt to `--otlp-endpoint`) | unset |
+| `OTEL_EXPORTER_OTLP_HEADERS` | OTLP exporter headers (`k=v,k=v`) | unset |
 | `NO_COLOR` | Set to disable ANSI output | unset |
 
 Profile setup is round-trippable via `stratos config`:
@@ -276,10 +322,12 @@ stratos logout             # clear all stratos secrets from the keychain
 | Command | What it does |
 |---|---|
 | `init` | Interactive first-run setup; scriptable via flags |
+| `schema [--output json\|ndjson\|yaml]` | **Machine-readable command catalogue** (drives MCP tool registration, completion, doc generation) |
 | `completion <bash\|zsh\|fish\|powershell>` | Emit completion script |
 | `upgrade` | Re-run the latest pinned installer |
 | `config get \| set \| list \| edit` | Profile management; `edit` opens `$EDITOR` |
 | `login` / `login status` / `logout` | Store keys in the OS keychain |
+| `passkey` | WebAuthn ceremony bootstrapper (browser) |
 | `doctor` | Diagnose env, credentials, network |
 | `bench [-n N]` | Cold-start + N latency samples |
 | `explain <code\|status>` | Cause + fix for an exit code or HTTP status |
@@ -287,7 +335,7 @@ stratos logout             # clear all stratos secrets from the keychain
 
 ### Global options
 
-`--json` (force JSON), `--no-json` (opt out of CI auto-JSON), `-q` / `--quiet` (suppress info), `--no-quiet` (opt out of CI auto-quiet), `--verbose` (trace requests), `--profile <name>`, `--cdn-url <url>`, `--account-key <key>`, `--access-key <key>`, `--timeout <ms>`, `--retries <n>`.
+`--json` (force JSON), `--no-json` (opt out of CI auto-JSON), `--output <fmt>` (`json` / `ndjson` / `yaml` / `csv` / `table`; `jsonl` is an alias for `ndjson`), `--filter <jq-expr>` (pipe output through `jq`), `-q` / `--quiet` (suppress info), `--no-quiet` (opt out of CI auto-quiet), `--verbose` (trace requests), `--profile <name>`, `--cdn-url <url>`, `--account-key <key>`, `--access-key <key>`, `--timeout <ms>`, `--retries <n>`, `--rate <n>[/s]` (client-side rate limit for bulk ops), `--otlp-endpoint <url>`, `--otlp-headers k=v,k=v`.
 
 When CI is detected (`GITHUB_ACTIONS`, `GITLAB_CI`, `CIRCLECI`, `JENKINS_URL`, `TF_BUILD`, or `CI=true`), Stratos auto-enables `--json --quiet` and, on GitHub Actions, emits `::error::` workflow commands on non-zero exit so failures surface inline on PR/run pages. Override with `STRATOS_CI=0`.
 
@@ -351,8 +399,8 @@ console.log({ positional, flags });
 // integration-test.mjs — invoke any command in-process.
 import { main, VERSION, EX } from '@cloudcdn/stratos';
 
-console.log(`Driving stratos v${VERSION}`);
-console.log(`Exit codes: ${JSON.stringify(EX)}`); // → { OK: 0, USAGE: 64, ... }
+console.log(`Driving stratos v${VERSION}`);          // → Driving stratos v0.0.16
+console.log(`Exit codes: ${JSON.stringify(EX)}`);    // → { OK: 0, USAGE: 64, ... }
 
 // Same argv shape as the CLI; same exits, same stdout/stderr discipline.
 await main(['health', '--cdn-url', 'http://localhost:8788', '--json']);
@@ -366,10 +414,10 @@ await main(['health', '--cdn-url', 'http://localhost:8788', '--json']);
 | `parseFlags(args)` | `function` | `argv → { positional, flags }` parser |
 | `jsonReq(path, init?, opts?)` | `async function` | Retrying, auth-aware `fetch` wrapper |
 | `envConfig(flags?)` | `async function` | Resolve `{ BASE, ACCOUNT_KEY, ACCESS_KEY, … }` from flags / env / profile / keychain |
-| `cmdHealth`, `cmdPurge`, `cmdSigned`, `cmdAssets`, `cmdInsights`, `cmdZones`, `cmdTokens`, `cmdWebhooks`, `cmdStorage`, `cmdLogs`, `cmdAI`, `cmdImage`, `cmdSearch`, `cmdAsk` | `async function` | One per CLI subcommand |
+| `cmdHealth`, `cmdPurge`, `cmdSigned`, `cmdAssets`, `cmdInsights`, `cmdZones`, `cmdTokens`, `cmdWebhooks`, `cmdStorage`, `cmdLogs`, `cmdAI`, `cmdImage`, `cmdSearch`, `cmdAsk` | `async function` | The in-process-driveable subset of CLI subcommands |
 | `MCP_TOOLS` | `Array<{name, desc, schema}>` | The 10 tools exposed over MCP |
 | `mcpCall(name, args)` | `async function` | Invoke an MCP tool in-process |
-| `VERSION` | `string` | e.g. `'0.0.15'` |
+| `VERSION` | `string` | e.g. `'0.0.16'` |
 | `EX` | `Readonly<Object>` | Sysexits-style exit-code constants |
 
 Every export carries full JSDoc (parameters, returns, throws). IDE hover and TypeDoc-generated docs work out of the box.
@@ -403,9 +451,33 @@ The server inherits env vars from the host process, so a `CLOUDCDN_ACCOUNT_KEY` 
 
 ---
 
-## Output, exit codes, environment
+## Machine-readable schema
 
-**Output.** Default is pretty JSON on TTY, compact JSON on pipe. List-shaped commands (`assets`, `zones`, `tokens`, …) render an aligned table on TTY and JSON when piped or with `--json`. Diagnostics (`info:`, `warning:`, `error:`) go to **stderr**, never stdout.
+`stratos schema` emits the full command surface as a structured catalogue. Drives MCP tool registration, shell completion, doc generation, and external agent introspection from a single source of truth.
+
+```bash
+# Per-command shape
+stratos schema --output ndjson | jq -c 'select(.name == "purge")'
+# → {"name":"purge","summary":"Invalidate cache by URL, tag, or wholesale.",
+#    "usage":"stratos purge <url>... [--dry-run]",
+#    "exits":[0,64,69,75,77,78],"since":"0.0.1","mcp_tool":"cloudcdn_purge"}
+
+# Top-level wrapper
+stratos schema | jq 'keys'
+# → ["$schema","commands","error_types","homepage","tool","version"]
+
+# Discover only MCP-exposed commands
+stratos schema --output ndjson | jq -r 'select(.mcp_tool) | .name'
+# → health, purge, signed, assets, insights, ai, search, logs (10 total)
+```
+
+The output is **deterministic** — byte-identical across runs given the same source, so it's safe to cache, hash, or attest. The `error_types` field includes the stable typed-error registry so an agent gets both the verb surface and the error contract in one document.
+
+---
+
+## Output, exit codes, typed errors
+
+**Output.** Default is pretty JSON on TTY, compact JSON on pipe. List-shaped commands (`assets`, `zones`, `tokens`, …) render an aligned table on TTY and JSON when piped or with `--json`. Use `--output ndjson` to stream one record per line (alias `jsonl`); pipes cleanly into `jq -c`, DuckDB `read_ndjson`, or an LLM context window without buffering an array. Diagnostics (`info:`, `warning:`, `error:`) go to **stderr**, never stdout.
 
 **Exit codes** (sysexits-style):
 
@@ -413,14 +485,47 @@ The server inherits env vars from the host process, so a `CLOUDCDN_ACCOUNT_KEY` 
 |---|---|
 | `0` | Success |
 | `64` | Usage / bad CLI args |
+| `65` | Data error — malformed input or response |
 | `69` | Service unavailable (4xx other than auth) |
 | `70` | Software error (uncaught exception) |
+| `74` | Local I/O failure |
 | `75` | Tempfail — 5xx, 429, or network after retries exhausted |
 | `77` | Permission denied (401 / 403) |
 | `78` | Config error (missing key, unreadable config file) |
 | `130` | Interrupted (SIGINT) |
 
 Programmatic consumers can import `EX` for these constants.
+
+**Stable typed errors.** When `--json` or any structured `--output` is set, failures emit a typed envelope on stderr that agents can parse without regex-matching on human strings:
+
+```bash
+stratos signed --json
+# stderr: {"error":{"type":"usage_error","message":"signed needs a path argument.",
+#                   "retryable":false,"exit_code":64}}
+```
+
+```bash
+# HTTP-status → type inference via emitFailure()
+stratos health --json --retries 0 --cdn-url http://127.0.0.1:1
+# stderr: {"error":{"type":"request_failed","message":"...","retryable":true,
+#                   "exit_code":75}}
+```
+
+| `error.type` | When | `retryable` | Exit |
+|---|---|---|---|
+| `usage_error` | Invalid CLI invocation | `false` | `64` |
+| `auth_missing_key` | Required credential not configured | `false` | `78` |
+| `auth_invalid` | 401 / 403 from the API | `false` | `77` |
+| `target_not_found` | 404 from the API | `false` | `69` |
+| `rate_limited` | 429 from the API | **`true`** | `75` |
+| `server_error` | 5xx from the API | **`true`** | `75` |
+| `request_failed` | Network / transport failure | **`true`** | `75` |
+| `data_error` | Malformed input or response (400 / 422) | `false` | `65` |
+| `io_error` | Local filesystem failure | `false` | `74` |
+| `unavailable` | Other non-2xx | `false` | `69` |
+| `software_error` | Unexpected internal error | `false` | `70` |
+
+The full table is also embedded in `stratos schema`'s `error_types` field, so an agent can pull both the verb surface and the error contract in one introspection roundtrip.
 
 ---
 
@@ -461,10 +566,10 @@ Recursive site upload with concurrency:
 stratos storage sync ./dist /sites/acme --concurrency 16
 ```
 
-Batch AI alt-text generation (one curl per asset, 4 in parallel):
+Batch AI alt-text generation (one curl per asset, 4 in parallel, NDJSON-streamed):
 
 ```bash
-stratos assets --format=jpg --json | jq -r '.[].Path' \
+stratos assets --format=jpg --output ndjson | jq -r '.Path' \
   | xargs -I{} -P4 stratos ai alt "https://cloudcdn.pro{}"
 ```
 
@@ -472,6 +577,16 @@ Detect edge-config drift in CI (exits non-zero on diff):
 
 ```bash
 stratos rules diff _headers -f ./public/_headers
+```
+
+Agent-friendly retry from a typed error:
+
+```bash
+# An agent caller wraps each call with this pattern.
+if ! out=$(stratos purge --tag "$TAG" --json 2>err.json); then
+  retryable=$(jq -r '.error.retryable' err.json)
+  [[ "$retryable" == "true" ]] && sleep 1 && retry
+fi
 ```
 
 | Recipe | File |
@@ -483,6 +598,8 @@ stratos rules diff _headers -f ./public/_headers
 | MCP with Claude Code | [`examples/mcp-claude-code.md`](examples/mcp-claude-code.md) |
 | Migrating from Wrangler | [`examples/migrate-from-wrangler.md`](examples/migrate-from-wrangler.md) |
 | Migrating from Fastly CLI | [`examples/migrate-from-fastly.md`](examples/migrate-from-fastly.md) |
+| Migrating from Codex CLI | [`examples/migrate-from-codex.md`](examples/migrate-from-codex.md) |
+| Setting up the Homebrew tap | [`examples/homebrew-tap-setup.md`](examples/homebrew-tap-setup.md) |
 
 ---
 
@@ -490,11 +607,11 @@ stratos rules diff _headers -f ./public/_headers
 
 Stratos is shaped for a specific bet. It's the wrong tool when:
 
-- **You need local emulation.** `wrangler dev` and `fastly dev` ship dev servers; Stratos is API-only. For local CloudCDN, run the upstream stack and point `CLOUDCDN_URL` at it.
+- **You need local emulation.** `wrangler dev` and `fastly dev` ship dev servers; Stratos is API-only today (Phase 2 of the implementation plan adds `stratos dev`). For local CloudCDN now, run the upstream stack and point `CLOUDCDN_URL` at it.
 - **You need a richer SDK** with auto-pagination iterators, typed response models, or built-in observability hooks. Use the upstream HTTP API directly with your preferred client.
 - **You're on Node < 20.** Stratos uses `AbortSignal.timeout`, the stable global `fetch`, and `crypto.subtle`. We won't backport.
 - **You need browser support.** Stratos is Node-only — it shells out (`security`, `secret-tool`), reads `process.env`, calls `process.exit`. None of that runs in a browser.
-- **You need Wrangler/Fastly-specific primitives** (D1, KV, Compute@Edge, VCL). Different platforms.
+- **You need Wrangler/Fastly-specific primitives** (D1, KV, Compute@Edge, VCL). Different platforms. See [`NON-GOALS.md`](NON-GOALS.md) for the full list of deliberate scope exclusions.
 - **You can't tolerate breaking changes during 0.0.x.** Per [versioning policy](#versioning-policy), all `0.0.x` releases may include breaking changes. We will not bump to `0.1.0` until `0.0.999`.
 
 ---
@@ -508,12 +625,14 @@ Stratos is shaped for a specific bet. It's the wrong tool when:
   npm audit signatures
   ```
 
-- **Build provenance.** Each tagged release attaches a GitHub `actions/attest-build-provenance` attestation for `stratos.mjs`. Verify with:
+- **SLSA L3 build provenance.** Each tagged release attaches an in-toto attestation (`stratos-v<version>.intoto.jsonl`) via `slsa-framework/slsa-github-generator`. Verify with `slsa-verifier`. Standard GitHub Actions attestations also exist:
 
   ```bash
   gh attestation verify stratos.mjs --owner sebastienrousseau
   ```
 
+- **Cosign keyless signatures.** `.sig` and `.crt` files alongside every canonical artefact (script, binaries, installers, SBOM, VEX). Sigstore Fulcio CA + Rekor transparency log. See [`SECURITY-AUDIT.md`](SECURITY-AUDIT.md) for the verification recipe.
+- **CycloneDX SBOM + VEX.** Attached to every release; both signed with Cosign keyless.
 - **Signed commits.** Every commit on `main` is SSH ED25519 signed.
 - **No telemetry.** Every network call is initiated by an explicit command. No phone-home, no auto-update polling.
 - **Offline `signed`.** The HMAC mint runs in-process; the secret never leaves the host.
@@ -534,40 +653,42 @@ Stratos is a single ES module with no runtime dependencies. The only dev-only de
 
 ```
 .
-├── stratos.mjs              # the CLI (~3,700 lines, zero runtime deps)
+├── stratos.mjs              # the CLI (~4,000 lines, zero runtime deps)
 ├── install/
 │   ├── install.sh           # POSIX installer
 │   └── install.ps1          # Windows installer
 ├── scripts/
-│   └── check-docs.mjs       # zero-dep JSDoc coverage gate
-├── test/                    # 385 tests, node --test
-│   ├── parse.test.mjs
-│   ├── router.test.mjs
-│   ├── signed.test.mjs
-│   ├── http.test.mjs        # in-process mock HTTP server
+│   ├── check-docs.mjs       # zero-dep JSDoc coverage gate
+│   ├── check-versions.mjs   # version-string + EXPECTED_SHA agreement check
+│   └── lint-tests.mjs       # resource-leak rule for test/*.test.mjs
+├── test/                    # 532 tests across 29 files, node --test
+│   ├── parse.test.mjs · router.test.mjs · signed.test.mjs · http.test.mjs
 │   ├── mcp.test.mjs         # JSON-RPC stdio
-│   ├── doctor-bench.test.mjs
-│   ├── diff-pagination.test.mjs
-│   ├── commands.test.mjs
-│   ├── coverage-edge.test.mjs
-│   ├── branches.test.mjs
-│   └── more-branches.test.mjs
+│   ├── commands.test.mjs · coverage-edge.test.mjs · branches.test.mjs · more-branches.test.mjs
+│   ├── doctor-bench.test.mjs · diff-pagination.test.mjs
+│   ├── v003.test.mjs … v013-branch-push.test.mjs   # per-release regression sets
+│   └── v016-{lint-tests,schema,ndjson,typed-errors}.test.mjs
 ├── examples/                # cookbook + migration guides
+├── actions/stratos/         # composite GitHub Action
 ├── .github/workflows/
 │   ├── ci.yml               # Node 20/22/24 × { ubuntu, macos, windows }
 │   └── release.yml          # npm publish --provenance on tag
-├── .c8rc.json               # coverage thresholds (100/100/100/85)
-├── README.md · CHANGELOG.md · SECURITY.md · CONTRIBUTING.md · LICENSE
+├── .github/dependabot.yml   # weekly actions/npm/docker updates
+├── .c8rc.json               # coverage config (enforcement in coverage:check)
+├── README.md · CHANGELOG.md · CONTRIBUTING.md · CODE_OF_CONDUCT.md
+├── GOVERNANCE.md · MAINTAINERS.md · NON-GOALS.md
+├── SECURITY.md · SECURITY-AUDIT.md · LICENSE
 └── package.json · package-lock.json
 ```
 
 Run the suite:
 
 ```bash
-npm test                     # all 385 tests, ~9 s
+npm test                     # all 532 tests, ~8 s
 npm run coverage             # text + HTML + LCOV reports
-npm run coverage:check       # enforce 100 / 100 / 100 / 85 thresholds
+npm run coverage:check       # enforce 100 / 100 / 100 / 100 thresholds
 npm run docs:check           # enforce 100% JSDoc coverage
+npm run tests:lint           # resource-leak rule (CI gate)
 ```
 
 Run locally without installing:
@@ -577,7 +698,7 @@ node stratos.mjs version
 node stratos.mjs health --cdn-url https://staging.cloudcdn.example
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the PR checklist (zero-dep ethos, JSDoc-on-every-declaration rule, test-required-for-every-command policy).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the PR checklist (zero-dep ethos, JSDoc-on-every-declaration rule, test-required-for-every-command policy, resource-lifecycle rule for tests).
 
 ### Versioning policy
 
@@ -589,20 +710,28 @@ Stratos uses small `v0.0.x` increments. We will not bump to `v0.1.0` before `v0.
 
 | Metric | Result |
 |---|---|
-| Tests | **385 / 385 green** (`node --test`, zero runtime deps, ~9 s) |
-| Code: Statements | **100%** (3,678 / 3,678) |
-| Code: Lines | **100%** (3,678 / 3,678) |
-| Code: Functions | **100%** (130 / 130) |
-| Code: Branches | 92.76% (988 / 1,065) |
-| Docs: JSDoc declarations | **100%** (113 / 113) |
+| Tests | **532 / 532 green** (`node --test`, zero runtime deps, ~8 s) |
+| Code: Statements | **100%** |
+| Code: Lines | **100%** |
+| Code: Functions | **100%** |
+| Code: Branches | **100%** |
+| Docs: JSDoc declarations | **100%** (118 / 118) |
 
-The CI gate (Node 22 / Ubuntu) runs `npm test → coverage:check → docs:check` in sequence. The build fails below any threshold. Cross-platform CI runs all 385 tests on Node 20/22/24 × { Ubuntu, macOS, Windows }.
+The CI gate (Node 22 / Ubuntu) runs `npm test → coverage:check → docs:check → tests:lint` in sequence. The build fails below any threshold. Cross-platform CI runs all 532 tests on Node 20/22/24 × { Ubuntu, macOS, Windows }.
 
 ---
 
 ## Security
 
 See [SECURITY.md](SECURITY.md) for the disclosure policy, supported versions, and supply-chain notes. The deeper threat model + control catalogue lives in [SECURITY-AUDIT.md](SECURITY-AUDIT.md). Report vulnerabilities privately to [`sebastian.rousseau@gmail.com`](mailto:sebastian.rousseau@gmail.com) — please do *not* open public GitHub issues for security matters.
+
+---
+
+## Governance
+
+How decisions are made, who has commit rights, how to become a deputy, how releases are cut: [`GOVERNANCE.md`](GOVERNANCE.md). The current maintainer list is in [`MAINTAINERS.md`](MAINTAINERS.md). The flip side of the capabilities table — things Stratos deliberately doesn't do — is in [`NON-GOALS.md`](NON-GOALS.md).
+
+All participation is subject to the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
 
 ---
 
@@ -614,7 +743,7 @@ See [SECURITY.md](SECURITY.md) for the disclosure policy, supported versions, an
 | Machine-readable schema | `stratos schema` (JSON / NDJSON / YAML; drives agent introspection + MCP) |
 | Programmatic API | [Programmatic API](#programmatic-api) section above; full JSDoc on every export |
 | Cookbook | [`examples/`](examples/) |
-| Migration guides | [`examples/migrate-from-wrangler.md`](examples/migrate-from-wrangler.md), [`examples/migrate-from-fastly.md`](examples/migrate-from-fastly.md) |
+| Migration guides | [`examples/migrate-from-wrangler.md`](examples/migrate-from-wrangler.md), [`examples/migrate-from-fastly.md`](examples/migrate-from-fastly.md), [`examples/migrate-from-codex.md`](examples/migrate-from-codex.md) |
 | MCP integration | [`examples/mcp-claude-code.md`](examples/mcp-claude-code.md) |
 | Release notes | [`CHANGELOG.md`](CHANGELOG.md) |
 | Security disclosure | [`SECURITY.md`](SECURITY.md) |
@@ -636,4 +765,3 @@ Licensed under the [MIT License](LICENSE).
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 <p align="right"><a href="#contents">Back to Top</a></p>
-
