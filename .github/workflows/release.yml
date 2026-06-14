@@ -222,7 +222,20 @@ jobs:
       - name: Smoke (${{ matrix.target }})
         if: matrix.smoke
         shell: bash
-        run: ./${{ matrix.out }} version
+        # Don't just check the exit code: the v0.0.15..v0.0.17 win-x64
+        # binaries exited 0 while producing zero bytes of stdout (the
+        # Bun-compiled entrypoint-guard mismatched the .exe path, so
+        # main() never ran). bash `set -e` saw exit 0 and the smoke
+        # passed quietly. Assert the version banner explicitly so any
+        # future silent-zero-exit fails the matrix on the spot.
+        run: |
+          set -euo pipefail
+          out="$(./${{ matrix.out }} version)"
+          echo "$out"
+          [[ "$out" =~ ^stratos\ v[0-9] ]] || {
+            echo "::error title=smoke (${{ matrix.target }})::empty or malformed output: '$out'" >&2
+            exit 1
+          }
 
       - name: Attest binary build provenance
         uses: actions/attest-build-provenance@v1
@@ -702,6 +715,7 @@ jobs:
           - { runner: ubuntu-latest,  channel: install-sh }
           - { runner: macos-latest,   channel: homebrew }
           - { runner: macos-latest,   channel: binary-darwin-arm64 }
+          - { runner: windows-latest, channel: binary-win-x64 }
     steps:
       - name: Strip v-prefix off the tag
         id: ver
@@ -749,6 +763,16 @@ jobs:
                 "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/stratos-darwin-arm64"
               chmod +x stratos
               got="$(./stratos version)"
+              ;;
+            binary-win-x64)
+              # Mirror stephengillie's manual test on microsoft/winget-pkgs#382755:
+              # the .exe is invoked from PowerShell/cmd context, and we assert
+              # the stdout matches the version banner. v0.0.17 shipped a binary
+              # that exited 0 with empty stdout; this cell exists to ensure
+              # that class of regression fails the release matrix.
+              curl -fsSL -o stratos.exe \
+                "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/stratos-win-x64.exe"
+              got="$(./stratos.exe version)"
               ;;
             docker)
               retry 5 docker pull "ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}"

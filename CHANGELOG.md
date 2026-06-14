@@ -10,6 +10,27 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.18] — 2026-06-14
+
+### Fixed
+
+- **Windows binary (`stratos-win-x64.exe`) was silent on every invocation.** v0.0.15 through v0.0.17 shipped a `bun --compile`-built Windows binary that exited `0` while producing **zero bytes of stdout** for *every* command. Discovered by reproducing `microsoft/winget-pkgs#382755` — the reviewer @stephengillie's manual validation of `stratos --version` returned empty output, and we narrowed the cause through two rounds of CI diagnostic (`diag-windows-binary.yml`, `diag-windows-binary-2.yml`).
+  - **Root cause:** the script-entrypoint guard at the bottom of `stratos.mjs` used the classic Node check `fileURLToPath(import.meta.url) === process.argv[1]`. In a Bun-compiled standalone binary on Windows, `process.argv[1]` is the `.exe` path on disk (`C:\…\stratos.exe`) while `import.meta.url` resolves into Bun's virtual `$bunfs` filesystem (`file:///$bunfs/root/…`). These never match → guard false → `main()` never runs → silent zero-exit. Linux/macOS binaries happened to work because their `argv[1]`/url comparison coincidentally passes, but the codepath was just as fragile.
+  - **Fix:** detect compiled-binary context explicitly via `typeof Bun !== 'undefined' && Array.isArray(Bun.embeddedFiles) && Bun.embeddedFiles.length > 0` and run `main()` if either that OR the Node entrypoint check is true. `Bun.embeddedFiles` is non-empty only inside a `bun build --compile` artefact, so importers of `stratos.mjs` as a library (Node or Bun, from source) still see `main()` *not* auto-run — the programmatic-API contract is preserved.
+- **The release-pipeline binary smoke was a no-op gate.** `shell: bash, ./<binary> version` with `set -e` saw `exit 0` from the silent binary and passed. Strengthened to assert the stdout matches `^stratos v[0-9]` explicitly — any future silent-zero-exit fails the release matrix at build time.
+- **`smoke-verify` matrix now includes `binary-win-x64`** alongside the existing `binary-linux-x64` and `binary-darwin-arm64` cells. Mirrors what the winget reviewer's manual test did: `curl` the `.exe` from the release and verify the version banner. Closes the post-release verification gap that let v0.0.15..v0.0.17 ship a broken Windows binary unnoticed.
+
+### Background
+
+PR `microsoft/winget-pkgs#382755` was closed unmerged on 2026-06-13 by the Microsoft reviewer after manual validation. CloudCDN.Stratos couldn't be auto-resubmitted because (a) it's not yet in `microsoft/winget-pkgs` (so the auto-bump action skips by design) and (b) the underlying silent-output bug would have produced an identical failure for any new submission. v0.0.18 fixes the binary; a manual first-version PR for `manifests/c/CloudCDN/Stratos/0.0.18/` (already pre-built and attached to the GitHub release as `winget-manifests.tar.gz`) is the next step to land `CloudCDN.Stratos` on winget.
+
+### Diagnostic workflows retained
+
+- `diag-windows-binary.yml` — round 1, walks the failure surface across shells and invocations
+- `diag-windows-binary-2.yml` — round 2, discriminates Bun-build vs stratos.mjs vs stdio
+
+Both are `workflow_dispatch` only — no auto-fire. Kept as record of the investigation and as ready-to-trigger probes if the silent-output class ever recurs.
+
 ## [0.0.17] — 2026-06-14
 
 ### Added — schema-driven regression suite (Phase 0 follow-up)
@@ -341,6 +362,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.18]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.18
 [0.0.17]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.17
 [0.0.16]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.16
 [0.0.15]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.15
