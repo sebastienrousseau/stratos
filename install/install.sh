@@ -19,7 +19,7 @@
 set -euo pipefail
 
 # --- Configuration ---
-VERSION="0.0.16"
+VERSION="0.0.17"
 # Default to the GitHub release asset — it's the canonical source signed
 # by the release workflow, immutable per-tag, and serves the right bytes
 # without any out-of-band CDN sync. Power users can override with
@@ -28,7 +28,7 @@ SOURCE="${CLOUDCDN_URL:-https://github.com/sebastienrousseau/stratos/releases/do
 # Expected SHA-256 of stratos.mjs as delivered. Matches the source file
 # in git verbatim — `curl -o` (used below) writes the response body
 # byte-for-byte. Bumped on each release.
-EXPECTED_SHA="b76d4ef23728c123712ddf719a994b458537a65f71c89f72800cc04998385a39"
+EXPECTED_SHA="1f86af835c2a52f44898e1067cb246417115aa464e0bd9a5e47de81eca19ca22"
 
 # --- Styling ---
 if [ -t 1 ]; then

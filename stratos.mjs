@@ -33,7 +33,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *
  * @type {string}
  */
-const VERSION = '0.0.16';
+const VERSION = '0.0.17';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.
@@ -1386,6 +1386,16 @@ function cmdHelp(rest) {
   if (!topic) { out(HELP_ROOT); return; }
   const h = HELP_BY_COMMAND[topic];
   if (h) { out(h); return; }
+  // Fall back to a synthesised minimum from COMMAND_META so every
+  // command in `stratos schema` has at least a usage line + summary.
+  // Curated entries in HELP_BY_COMMAND take precedence; this is for
+  // the commands whose help is a one-liner anyway (stats, audit,
+  // analytics, ask, search, upgrade, logout, …).
+  const meta = COMMAND_META[topic];
+  if (meta) {
+    out(`stratos ${topic}\n  ${meta.summary}\n  Exit codes: ${meta.exits.join(', ')}\n`);
+    return;
+  }
   diag(`No help for '${topic}'.`);
   process.exit(EX.USAGE);
 }

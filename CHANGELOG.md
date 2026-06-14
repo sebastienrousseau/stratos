@@ -10,6 +10,24 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.17] — 2026-06-14
+
+### Added — schema-driven regression suite (Phase 0 follow-up)
+
+- **50 new regression tests** across three new files that pin the public surface as a contract:
+  - `test/v017-regression-manifest.test.mjs` (15 tests) — schema/MCP_TOOLS/EX/error_types/exports cross-reference. Catches drift where a new command is added without updating one of the four parallel registries. Every `EX.*` code must be referenced somewhere; every `MCP_TOOLS` entry must map to a known command verb; every `error_types.retryable` bit is the documented contract.
+  - `test/v017-regression-cli-smoke.test.mjs` (20 tests) — `stratos help <cmd>` and `stratos <cmd> --help` exit cleanly for every command in `KNOWN_COMMANDS`. Subcommand routers reject unknown subcommands with `EX.USAGE`. `stratos completion <shell>` renders for bash/zsh/fish/powershell. `stratos explain` works for every `EX` value, the documented symbolic aliases, and common HTTP statuses. `stratos halth` produces a Levenshtein "did you mean health" suggestion.
+  - `test/v017-regression-output-matrix.test.mjs` (15 tests) — every documented `--output` format (json, ndjson, jsonl alias, yaml, csv, table) renders against a mock server for both single-object and list bodies. `--json` is verified as a shorthand for `--output json`. `--filter` jq pipeline works on single-line expressions.
+
+### Fixed
+
+- **`stratos help <cmd>` now works for every command** in `KNOWN_COMMANDS`, not just the ~24 with curated entries in `HELP_BY_COMMAND`. Falls back to a synthesised `stratos <cmd>\n  <summary>\n  Exit codes: <list>` from `COMMAND_META` when no hand-tuned entry exists. Closes the "stratos help stats / audit / analytics / ask / search / upgrade / logout / stream / pipeline / passkey returns EX.USAGE" surface that the regression suite caught on first run.
+- Bumps `EXPECTED_SHA` in `install/install.{sh,ps1}` to match the v0.0.17 bytes (`1f86af83…`).
+
+### Known limitations surfaced (not fixed in this release)
+
+- `applyFilter()` splits jq's stdout by newlines and parses each as a separate JSON value, so filters that produce pretty-printed multi-line single documents (e.g. `{status, edge}` without `-c`) fail with "jq produced non-JSON output". Single-line expressions (`.status`, `.foo | length`) and per-line streams (`.[].id`) work fine. Adding `-c` to the jq invocation is a one-line product fix tracked as a follow-up. Pinned in the regression suite.
+
 ## [0.0.16] — 2026-06-14
 
 ### Added — agent-first DevEx (Phase 1.1 + 1.2 + 1.3)
@@ -326,6 +344,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.17]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.17
 [0.0.16]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.16
 [0.0.15]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.15
 [0.0.14]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.14
