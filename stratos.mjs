@@ -33,7 +33,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *
  * @type {string}
  */
-const VERSION = '0.0.18';
+const VERSION = '0.0.19';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.
@@ -4066,21 +4066,29 @@ export {
 //       binary that exited 0 with zero bytes of output, blocking the
 //       microsoft/winget-pkgs#382755 review.
 //
-//       Bun exposes `Bun.embeddedFiles` only when running from a
-//       compiled standalone binary; it's empty/undefined when
-//       running `stratos.mjs` from source under the Bun runtime
-//       (e.g. as a library). That makes it a clean discriminator
-//       for "I am the entry point of a compiled binary."
+//       v0.0.18 attempted to fix this via `Bun.embeddedFiles.length > 0`
+//       but that array is for `--embed FILE` extras, not the main
+//       entry script, so the check stayed false and the silent-output
+//       persisted (release.yml's strengthened smoke caught it before
+//       the v0.0.18 binary could ship — see CHANGELOG).
 //
-// Library callers (Node or Bun, importing stratos.mjs from their own
-// code) get the falsy arm of both checks and `main()` does not auto-
-// run — preserving the existing programmatic-API contract.
+//       v0.0.19 uses the simpler invariant: `typeof Bun !== 'undefined'`.
+//       Stratos is a Node-only package (engines.node >= 20; NON-GOALS.md
+//       documents the no-Bun-as-library stance) so seeing the Bun
+//       runtime at all means we're inside a compiled binary that the
+//       Bun --compile flow built. Library importers under Bun aren't
+//       a supported configuration; in the unlikely case someone tries,
+//       main() runs eagerly — a minor surprise rather than a
+//       silent-zero-exit, which is the right side of the trade-off.
+//
+// Library callers under Node (the supported import path) get the falsy
+// arm of both checks and `main()` does not auto-run — programmatic-API
+// contract preserved.
 /* v8 ignore start */
-const isCompiledBunBinary = typeof Bun !== 'undefined'
-  && Array.isArray(Bun.embeddedFiles) && Bun.embeddedFiles.length > 0;
+const isBunRuntime = typeof Bun !== 'undefined';
 const isNodeEntrypoint =
   process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
-if (isCompiledBunBinary || isNodeEntrypoint) {
+if (isBunRuntime || isNodeEntrypoint) {
   main().catch((e) => {
     const code = (e && e.exitCode) ? e.exitCode : EX.SOFTWARE;
     const type = (e && e.type) || (e && e.exitCode ? undefined : 'software_error');

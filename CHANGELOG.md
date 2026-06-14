@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.19] — 2026-06-14
+
+### Fixed
+
+- **Windows binary entrypoint guard — second attempt.** v0.0.18 tried to detect the Bun-compiled binary context via `Bun.embeddedFiles.length > 0`, but that array is for `--embed FILE` extras (additional files passed alongside the entry script), not the main entry itself. So the check stayed `false` on Windows, `main()` never ran, and the binary remained silent. The v0.0.18 release.yml's strengthened smoke step (`assert stdout matches ^stratos v[0-9]`) caught it cleanly: the `binaries (windows-latest, …, smoke: true)` step failed with `::error::empty or malformed output: ''`, every downstream job (manifests / SLSA / tap-bump / scoop-bump / winget-submit / smoke-verify) was skipped via the `needs:` dependency chain, and **no broken Windows binary was attached to the v0.0.18 release.** npm @cloudcdn/stratos@0.0.18 and the Docker image v0.0.18 did publish (their paths don't go through the Bun binary).
+- **v0.0.19's fix uses the simpler invariant:** `typeof Bun !== 'undefined'`. Stratos is a Node-only package (`engines.node >= 20`; `NON-GOALS.md` documents the no-Bun-as-library stance), so any time the Bun global exists at runtime, we're inside a `bun build --compile` artefact. Library importers under Bun aren't a supported configuration; in the unlikely case someone tries, `main()` runs eagerly — a minor surprise rather than a silent-zero-exit, which is the right side of the trade-off. The Node-entrypoint check is unchanged.
+- The bug class that originally produced this — *smoke step asserts only exit code, not output* — was already fixed in v0.0.18. The strengthened assertion did its job during the v0.0.18 release: identified the silent binary, aborted the release before downstream artefacts shipped. That gate is what makes v0.0.19 a low-stakes iteration rather than a v0.0.16-style "ship and pray, fix later" cycle.
+
+### Partial v0.0.18 state to be aware of
+
+- ✓ `@cloudcdn/stratos@0.0.18` published to npm (the fix code is there; works for npm users — Bun binary isn't involved on that path).
+- ✓ Docker image `ghcr.io/sebastienrousseau/stratos:0.0.18` published (Docker runs Node).
+- ✓ GitHub Release v0.0.18 exists with canonical artefacts: `stratos.mjs`, installers, SBOM, VEX, man page, four of the five binaries (linux-x64, linux-arm64, darwin-x64, darwin-arm64) and their Cosign signatures.
+- ⚠️ **No `stratos-win-x64.exe`** attached to the v0.0.18 release (the silent binary was rejected at smoke).
+- ⚠️ **Homebrew tap, Scoop bucket, winget** still pointing at v0.0.17 (the `manifests` / `tap-bump` / `scoop-bump` / `winget-submit` jobs were `needs:`-blocked by the failed binaries cell).
+- ⚠️ No SLSA L3 attestation bundle for v0.0.18 (same skip).
+
+v0.0.19 will land all of the above end-to-end — assuming the new entrypoint check works (and the strengthened smoke is now the proof).
+
 ## [0.0.18] — 2026-06-14
 
 ### Fixed
@@ -362,6 +381,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.19]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.19
 [0.0.18]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.18
 [0.0.17]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.17
 [0.0.16]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.16
