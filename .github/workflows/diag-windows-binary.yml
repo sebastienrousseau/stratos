@@ -1,0 +1,203 @@
+# SPDX-License-Identifier: MIT
+#
+# diag-windows-binary
+# ──────────────────────────────────────────────────────────────────
+# Diagnostic workflow that walks the failure surface the winget
+# reviewer @stephengillie ran into on PR microsoft/winget-pkgs#382755:
+# `stratos --version` and `stratos --help` produced no visible output
+# when launched via the portable-shim path in PowerShell.
+#
+# Hypotheses to discriminate:
+#   1. shell-specific  — PowerShell mangles stdout from a Bun-compiled
+#      Windows binary that Git Bash handles fine
+#   2. invocation-specific — `--version` flag path is broken on Windows
+#      where the `version` subcommand path works
+#   3. shim-specific — the binary works direct, fails through a shim
+#      that mirrors what winget's PortableCommandAlias creates
+#   4. exe-rename-specific — renaming `stratos-win-x64.exe` →
+#      `stratos.exe` breaks the entrypoint guard
+#
+# Each cell captures stdout, stderr, exit code, and stdout byte
+# length. A working invocation has a stdout-len > 0; the bug surface
+# is exactly the cells with len=0 and exit=0 (silent success).
+#
+# Trigger:
+#   gh workflow run diag-windows-binary.yml --ref main \
+#     -f version=0.0.17
+# or via the Actions UI (workflow_dispatch).
+
+name: diag-windows-binary
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stratos release tag to download (without the v prefix)'
+        required: true
+        default: '0.0.17'
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download the release binary
+        shell: pwsh
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          $url = "https://github.com/sebastienrousseau/stratos/releases/download/v$env:VERSION/stratos-win-x64.exe"
+          Invoke-WebRequest -Uri $url -OutFile stratos-win-x64.exe
+          Get-FileHash stratos-win-x64.exe -Algorithm SHA256
+
+      - name: Make a renamed copy + a portable-shim wrapper
+        shell: pwsh
+        run: |
+          Copy-Item stratos-win-x64.exe stratos.exe
+          # winget's portable installer creates a shim under
+          # %LocalAppData%\Microsoft\WinGet\Links that re-execs the
+          # actual binary. Mirror that shape with a tiny CMD wrapper.
+          @"
+          @echo off
+          "%~dp0stratos.exe" %*
+          "@ | Out-File -Encoding ASCII shim-stratos.cmd
+          Get-ChildItem stratos*
+
+      - name: Probe — Git Bash × version subcommand (the current smoke)
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          echo "::group::git-bash version"
+          out=$(./stratos-win-x64.exe version 2>err.log)
+          code=$?
+          echo "exit=$code stdout-len=${#out}"
+          echo "stdout: $out"
+          echo "stderr: $(cat err.log)"
+          echo "::endgroup::"
+
+      - name: Probe — Git Bash × --version flag
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          echo "::group::git-bash --version"
+          out=$(./stratos-win-x64.exe --version 2>err.log)
+          code=$?
+          echo "exit=$code stdout-len=${#out}"
+          echo "stdout: $out"
+          echo "stderr: $(cat err.log)"
+          echo "::endgroup::"
+
+      - name: Probe — Git Bash × --help flag
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          echo "::group::git-bash --help"
+          out=$(./stratos-win-x64.exe --help 2>err.log)
+          code=$?
+          echo "exit=$code stdout-len=${#out}"
+          echo "stdout (first 200): ${out:0:200}"
+          echo "stderr: $(cat err.log)"
+          echo "::endgroup::"
+
+      - name: Probe — PowerShell × version subcommand (renamed exe)
+        if: always()
+        shell: pwsh
+        run: |
+          $stdout = & .\stratos.exe version 2>$null
+          $code = $LASTEXITCODE
+          $len = if ($stdout) { ($stdout | Out-String).Length } else { 0 }
+          Write-Host "::group::pwsh version"
+          Write-Host "exit=$code stdout-len=$len"
+          Write-Host "stdout: $stdout"
+          Write-Host "::endgroup::"
+
+      - name: Probe — PowerShell × --version flag (renamed exe)
+        if: always()
+        shell: pwsh
+        run: |
+          $stdout = & .\stratos.exe --version 2>$null
+          $code = $LASTEXITCODE
+          $len = if ($stdout) { ($stdout | Out-String).Length } else { 0 }
+          Write-Host "::group::pwsh --version"
+          Write-Host "exit=$code stdout-len=$len"
+          Write-Host "stdout: $stdout"
+          Write-Host "::endgroup::"
+
+      - name: Probe — PowerShell × --help flag (renamed exe)
+        if: always()
+        shell: pwsh
+        run: |
+          $stdout = & .\stratos.exe --help 2>$null
+          $code = $LASTEXITCODE
+          $len = if ($stdout) { ($stdout | Out-String).Length } else { 0 }
+          Write-Host "::group::pwsh --help"
+          Write-Host "exit=$code stdout-len=$len"
+          Write-Host "stdout (first 200): $($stdout | Out-String).Substring(0, [Math]::Min(200, ($stdout | Out-String).Length))"
+          Write-Host "::endgroup::"
+
+      - name: Probe — PowerShell × through CMD shim (winget-shaped)
+        if: always()
+        shell: pwsh
+        run: |
+          $stdout = & cmd.exe /c .\shim-stratos.cmd --version 2>$null
+          $code = $LASTEXITCODE
+          $len = if ($stdout) { ($stdout | Out-String).Length } else { 0 }
+          Write-Host "::group::pwsh via cmd-shim --version"
+          Write-Host "exit=$code stdout-len=$len"
+          Write-Host "stdout: $stdout"
+          Write-Host "::endgroup::"
+
+      - name: Probe — cmd.exe × --version flag (direct)
+        if: always()
+        shell: cmd
+        run: |
+          .\stratos.exe --version > out.txt 2> err.txt
+          echo exit=%ERRORLEVEL%
+          echo --- stdout ---
+          type out.txt
+          echo --- stderr ---
+          type err.txt
+
+      - name: Probe — install via actual winget + invoke through real shim
+        # The high-fidelity test: have winget itself install from the
+        # release manifests, then invoke through the shim winget put on
+        # PATH. This is the EXACT path stephengillie's manual validation
+        # exercised on PR #382755.
+        if: always()
+        shell: pwsh
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          # The v0.0.17 release ships winget-manifests.tar.gz.
+          $url = "https://github.com/sebastienrousseau/stratos/releases/download/v$env:VERSION/winget-manifests.tar.gz"
+          Invoke-WebRequest -Uri $url -OutFile winget-manifests.tar.gz
+          New-Item -ItemType Directory -Force -Path manifests | Out-Null
+          tar -xzf winget-manifests.tar.gz -C manifests
+          Get-ChildItem manifests
+
+          # `winget install` from a local manifest exercises the full
+          # portable-installer + PortableCommandAlias shim mechanism.
+          # --accept-source-agreements + --accept-package-agreements
+          # so the install doesn't prompt.
+          winget install -m manifests --accept-source-agreements --accept-package-agreements --silent
+
+          # winget creates a shim under %LocalAppData%\Microsoft\WinGet\Links.
+          # Add that to PATH and invoke `stratos --version`.
+          $env:Path = "$env:LocalAppData\Microsoft\WinGet\Links;$env:Path"
+          Write-Host "::group::winget-shim --version"
+          $stdout = & stratos --version 2>&1
+          Write-Host "exit=$LASTEXITCODE"
+          Write-Host "stdout: $stdout"
+          Write-Host "::endgroup::"
+
+          Write-Host "::group::winget-shim --help"
+          $stdout = & stratos --help 2>&1
+          Write-Host "exit=$LASTEXITCODE"
+          Write-Host "stdout (first 500): $($stdout | Out-String).Substring(0, [Math]::Min(500, ($stdout | Out-String).Length))"
+          Write-Host "::endgroup::"
