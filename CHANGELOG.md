@@ -10,6 +10,22 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.16] — 2026-06-14
+
+### Added — agent-first DevEx (Phase 1.1 + 1.2 + 1.3)
+
+- **`stratos schema`** — new command emitting a machine-readable catalogue of every CLI verb. Drives MCP tool registration, shell completion, doc generation, and external agent introspection from a single source of truth (`COMMAND_META` × `KNOWN_COMMANDS` × `MCP_TOOLS`). Per-command shape: `{ name, summary, usage, exits[], mcp_tool?, since }`. Top-level wrapper: `{ $schema, tool, version, homepage, commands[], error_types{} }`. Deterministic — byte-identical across runs given the same source, so the output is safe to cache, hash, or attest. `stratos schema --output ndjson` streams one command per line for pipelines that don't want to buffer the array.
+- **`--output ndjson` (alias `jsonl`)** — new format for emitting one JSON record per line, no surrounding array. Now the canonical agent-friendly default for list-shaped commands (`tokens list`, `assets`, `logs query`, `schema`). Single-object commands emit a single line so a downstream `while read line` loop works uniformly. Pipes cleanly into `jq -c`, DuckDB `read_ndjson`, or an LLM context window without buffering.
+- **Stable typed errors** — every failure path can now carry a `type` string from the `ERROR_TYPES` registry (`usage_error`, `auth_missing_key`, `auth_invalid`, `target_not_found`, `rate_limited`, `server_error`, `request_failed`, `data_error`, `io_error`, `unavailable`, `software_error`). When a structured output flag is set, errors land on stderr as a JSON envelope an agent can parse — `{"error": {"type":"rate_limited", "message":"…", "retryable":true, "exit_code":75, "http_status":429, "body":…}}`. HTTP 401/403/404/429/5xx infer the right type via `typeForStatus()`. The retryable bit is a contract: `rate_limited`, `server_error`, `request_failed` are always `true`; everything else is `false`. Agents drive backoff loops directly from this. `stratos schema` includes the typed-error registry so a caller gets both the verb surface and the error contract in one document.
+
+### Background
+
+The 2026 dividing line for CLIs is agentic-first: Cloudflare is rebuilding Wrangler as `cf` specifically because "agents are the primary customer," Algolia publicly rewrote its CLI for AI agents, and Vercel/Netlify shipped first-party MCP servers. Stratos was already MCP-server-shipped; this release adds the three primitives that close the rest of the gap — a schema verb so an agent can introspect the surface without parsing `--help`, NDJSON so streaming output composes with the standard agent-pipeline toolchain, and typed errors so an agent can drive retry / surface logic without regex-matching on human strings. See `~/Drop/stratos-ip.md` (the implementation plan) for the full Phase 1 narrative.
+
+### Fixed
+
+- Bumps `EXPECTED_SHA` in `install/install.{sh,ps1}` to match the v0.0.16 bytes (`b76d4ef2…`).
+
 ## [0.0.15] — 2026-06-13
 
 ### Fixed
@@ -310,6 +326,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.16]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.16
 [0.0.15]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.15
 [0.0.14]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.14
 [0.0.13]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.13

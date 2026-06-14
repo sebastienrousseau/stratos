@@ -602,7 +602,7 @@ The CI gate (Node 22 / Ubuntu) runs `npm test → coverage:check → docs:check`
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for the full disclosure policy, supported versions, and supply-chain notes. Report vulnerabilities privately to [`sebastian.rousseau@gmail.com`](mailto:sebastian.rousseau@gmail.com) — please do *not* open public GitHub issues for security matters.
+See [SECURITY.md](SECURITY.md) for the disclosure policy, supported versions, and supply-chain notes. The deeper threat model + control catalogue lives in [SECURITY-AUDIT.md](SECURITY-AUDIT.md). Report vulnerabilities privately to [`sebastian.rousseau@gmail.com`](mailto:sebastian.rousseau@gmail.com) — please do *not* open public GitHub issues for security matters.
 
 ---
 
@@ -611,13 +611,19 @@ See [SECURITY.md](SECURITY.md) for the full disclosure policy, supported version
 | Resource | Where |
 |---|---|
 | CLI reference | [`stratos help`](#commands) and per-command `stratos <cmd> --help` |
+| Machine-readable schema | `stratos schema` (JSON / NDJSON / YAML; drives agent introspection + MCP) |
 | Programmatic API | [Programmatic API](#programmatic-api) section above; full JSDoc on every export |
 | Cookbook | [`examples/`](examples/) |
 | Migration guides | [`examples/migrate-from-wrangler.md`](examples/migrate-from-wrangler.md), [`examples/migrate-from-fastly.md`](examples/migrate-from-fastly.md) |
 | MCP integration | [`examples/mcp-claude-code.md`](examples/mcp-claude-code.md) |
 | Release notes | [`CHANGELOG.md`](CHANGELOG.md) |
-| Security | [`SECURITY.md`](SECURITY.md) |
+| Security disclosure | [`SECURITY.md`](SECURITY.md) |
+| Security audit / threat model | [`SECURITY-AUDIT.md`](SECURITY-AUDIT.md) |
 | Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| Code of Conduct | [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) |
+| Governance | [`GOVERNANCE.md`](GOVERNANCE.md) |
+| Maintainers | [`MAINTAINERS.md`](MAINTAINERS.md) |
+| Non-goals | [`NON-GOALS.md`](NON-GOALS.md) |
 
 Contributions welcome.
 

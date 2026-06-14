@@ -157,5 +157,20 @@ Maintainers only.
 
 ## Code of conduct
 
-Be patient, be specific, be kind. Disagreements about technical direction
-get resolved in the issue tracker, in public, with concrete examples.
+All participation is subject to the
+[Contributor Covenant Code of Conduct](./CODE_OF_CONDUCT.md). Reports go
+to **sebastian.rousseau@gmail.com**.
+
+In short: be patient, be specific, be kind. Disagreements about
+technical direction get resolved in the issue tracker, in public, with
+concrete examples.
+
+## Governance
+
+How decisions are made, who has commit rights, how to become a deputy,
+how releases are cut: [`GOVERNANCE.md`](./GOVERNANCE.md). The current
+maintainer list is in [`MAINTAINERS.md`](./MAINTAINERS.md).
+
+The flip side of the README's capabilities table — things Stratos
+deliberately doesn't do — is in [`NON-GOALS.md`](./NON-GOALS.md). Check
+it before opening a "please add X" issue.
