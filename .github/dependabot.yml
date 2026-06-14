@@ -1,0 +1,108 @@
+# SPDX-License-Identifier: MIT
+#
+# Dependabot configuration for sebastienrousseau/stratos.
+#
+# Stratos ships with **zero runtime dependencies** by design — every
+# line ships to every user, every dep is a line a security review would
+# have to read (see NON-GOALS.md). The npm ecosystem entry below
+# therefore only tracks `devDependencies` (just c8 today). The bulk of
+# the value here is keeping the GitHub Actions pins current (10+
+# third-party actions across ci.yml and release.yml) and tracking the
+# Node base image in the Dockerfile.
+#
+# Cadence is weekly — daily PR noise outweighs the benefit on a repo
+# with a tiny dep surface. Security advisories still fire immediately
+# regardless of cadence.
+#
+# Updates are grouped so a single review session can handle a week's
+# worth of bumps. Major-version bumps are kept separate so they get the
+# attention they deserve.
+#
+# Docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+
+updates:
+  # GitHub Actions used by ci.yml + release.yml. Highest-impact channel
+  # here — the release pipeline currently pins ten third-party actions
+  # (checkout, setup-node, setup-bun, build-push-action, login-action,
+  # setup-buildx-action, setup-qemu-action, cosign-installer,
+  # attest-build-provenance, action-gh-release, winget-releaser).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/London
+    commit-message:
+      prefix: chore
+      include: scope
+    labels:
+      - dependencies
+      - github-actions
+    open-pull-requests-limit: 5
+    groups:
+      # One PR per week for routine minor + patch bumps across all
+      # actions. Reviewers can scan a single diff instead of N PRs.
+      actions-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+      # Major bumps stay individual — they often carry breaking changes
+      # (e.g. setup-node@v4 → @v5 dropping Node 18 support) and deserve
+      # a focused review.
+      actions-security:
+        applies-to: security-updates
+        update-types:
+          - patch
+          - minor
+          - major
+
+  # npm devDependencies. Just c8 today (per the zero-runtime-deps rule
+  # in NON-GOALS.md). Kept on the same cadence as github-actions so
+  # both land in the Monday review window.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/London
+    commit-message:
+      prefix: chore
+      include: scope
+    labels:
+      - dependencies
+      - npm
+    open-pull-requests-limit: 3
+    # Guardrail: if a contributor ever adds a runtime dep via PR, this
+    # config still bumps it, but the existence of `dependencies` in
+    # package.json is itself a non-goal violation (CONTRIBUTING.md ground
+    # rule #1). The PR review catches it; this config doesn't enforce
+    # the empty-dependencies rule on its own.
+    groups:
+      npm-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  # Docker base image for the published multi-arch image
+  # (ghcr.io/sebastienrousseau/stratos). Currently node:24-alpine.
+  # Node LTS images get monthly security bumps — this picks those up.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/London
+    commit-message:
+      prefix: chore
+      include: scope
+    labels:
+      - dependencies
+      - docker
+    open-pull-requests-limit: 2

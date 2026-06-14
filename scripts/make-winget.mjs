@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: MIT
 //
-// Generate winget manifests for Stratos. The 1.6 schema requires three
+// Generate winget manifests for Stratos. The 1.12 schema requires three
 // YAML files in a versioned subdirectory:
 //
 //   manifests/c/CloudCDN/Stratos/<version>/CloudCDN.Stratos.installer.yaml
@@ -63,7 +63,7 @@ async function fileSha(filename) {
 
 const installerSha = await fileSha('stratos-win-x64.exe');
 
-const installer = `# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+const installer = `# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 # SPDX-License-Identifier: MIT
 
 PackageIdentifier: CloudCDN.Stratos
@@ -81,10 +81,10 @@ Installers:
       - RelativeFilePath: stratos-win-x64.exe
         PortableCommandAlias: stratos
 ManifestType: installer
-ManifestVersion: 1.6.0
+ManifestVersion: 1.12.0
 `;
 
-const locale = `# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+const locale = `# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
 # SPDX-License-Identifier: MIT
 
 PackageIdentifier: CloudCDN.Stratos
@@ -112,17 +112,17 @@ Tags:
   - mcp
   - opentelemetry
 ManifestType: defaultLocale
-ManifestVersion: 1.6.0
+ManifestVersion: 1.12.0
 `;
 
-const root = `# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.6.0.schema.json
+const root = `# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.12.0.schema.json
 # SPDX-License-Identifier: MIT
 
 PackageIdentifier: CloudCDN.Stratos
 PackageVersion: ${version}
 DefaultLocale: en-US
 ManifestType: version
-ManifestVersion: 1.6.0
+ManifestVersion: 1.12.0
 `;
 
 const outDir = join(distRoot, 'winget');

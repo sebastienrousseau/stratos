@@ -36,10 +36,11 @@ function runAsync(args, env = {}) {
 }
 
 test('rules diff: identical content exits 0 (no drift)', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-'));
-  const local = join(tmp, '_headers');
-  await writeFile(local, '/api/*\n  Cache-Control: no-store\n');
+  let tmp;
   try {
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-'));
+    const local = join(tmp, '_headers');
+    await writeFile(local, '/api/*\n  Cache-Control: no-store\n');
     await withServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ Content: '/api/*\n  Cache-Control: no-store\n' }));
@@ -49,14 +50,15 @@ test('rules diff: identical content exits 0 (no drift)', async () => {
       assert.equal(r.status, 0);
       assert.match(r.stderr, /identical/);
     });
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally { if (tmp) await rm(tmp, { recursive: true, force: true }); }
 });
 
 test('rules diff: drift exits 69 and prints +/- lines', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-'));
-  const local = join(tmp, '_headers');
-  await writeFile(local, '/api/*\n  Cache-Control: no-store\n  X-New: yes\n');
+  let tmp;
   try {
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-'));
+    const local = join(tmp, '_headers');
+    await writeFile(local, '/api/*\n  Cache-Control: no-store\n  X-New: yes\n');
     await withServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ Content: '/api/*\n  Cache-Control: public\n' }));
@@ -71,7 +73,7 @@ test('rules diff: drift exits 69 and prints +/- lines', async () => {
       assert.match(r.stdout, /-\s*Cache-Control: public/);
       assert.match(r.stdout, /\+\s*X-New: yes/);
     });
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally { if (tmp) await rm(tmp, { recursive: true, force: true }); }
 });
 
 test('rules diff: rejects invalid filename', async () => {

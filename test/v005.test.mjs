@@ -252,9 +252,10 @@ test('--rate: limiter spaces out multi-batch storage sync', async () => {
   // 60 files at 50/batch → 2 batches. With --rate 2/s the second batch
   // waits ~500 ms before its acquire() returns. Total elapsed should be
   // ≥ 450 ms but well under 2 s.
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-rate-'));
-  for (let i = 0; i < 60; i++) await writeFile(join(tmp, `f${i}.txt`), 'x');
+  let tmp;
   try {
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-rate-'));
+    for (let i = 0; i < 60; i++) await writeFile(join(tmp, `f${i}.txt`), 'x');
     await withServer(jsonServer({ ok: true }), async (base) => {
       const start = Date.now();
       const r = await runClean(['storage', 'sync', tmp, '/x', '--rate', '2'],
@@ -264,16 +265,17 @@ test('--rate: limiter spaces out multi-batch storage sync', async () => {
       assert.ok(elapsed >= 400, `expected ≥ 400 ms with --rate 2, got ${elapsed} ms`);
       assert.ok(elapsed < 5000, `did not expect ≥ 5 s, got ${elapsed} ms`);
     });
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally { if (tmp) await rm(tmp, { recursive: true, force: true }); }
 });
 
 test('--rate: fractional rate (0.5/s) is honoured by the limiter', async () => {
   // With --rate 0.5/s, the first batch is immediate; a hypothetical
   // second batch would wait 2000 ms. Storage sync of < 50 files is a
   // single batch, so this tests the parser + no-spurious-block path.
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-rate-frac-'));
-  await writeFile(join(tmp, 'one.txt'), 'x');
+  let tmp;
   try {
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-rate-frac-'));
+    await writeFile(join(tmp, 'one.txt'), 'x');
     await withServer(jsonServer({ ok: true }), async (base) => {
       const start = Date.now();
       const r = await runClean(['storage', 'sync', tmp, '/x', '--rate', '0.5'],
@@ -282,7 +284,7 @@ test('--rate: fractional rate (0.5/s) is honoured by the limiter', async () => {
       assert.equal(r.status, 0);
       assert.ok(elapsed < 2000, `single-batch sync should not wait; got ${elapsed} ms`);
     });
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally { if (tmp) await rm(tmp, { recursive: true, force: true }); }
 });
 
 test('--output csv on non-list body wraps the body in a single-row CSV', async () => {

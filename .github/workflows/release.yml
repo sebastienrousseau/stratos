@@ -37,6 +37,7 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────────
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
       name: npm
       url: https://www.npmjs.com/package/@cloudcdn/stratos
@@ -188,6 +189,7 @@ jobs:
   binaries:
     needs: publish
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -257,6 +259,7 @@ jobs:
   docker:
     needs: publish
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -312,6 +315,7 @@ jobs:
   manifests:
     needs: [publish, binaries]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -394,6 +398,7 @@ jobs:
   hashes:
     needs: [publish, binaries, docker, manifests]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       digests: ${{ steps.hash.outputs.digests }}
     steps:
@@ -446,6 +451,7 @@ jobs:
   tap-bump:
     needs: manifests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: ${{ !github.event.repository.fork }}
     steps:
       - name: Strip v-prefix off the tag
@@ -509,6 +515,7 @@ jobs:
   scoop-bump:
     needs: manifests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: ${{ !github.event.repository.fork }}
     steps:
       - name: Strip v-prefix off the tag
@@ -573,6 +580,7 @@ jobs:
   winget-submit:
     needs: manifests
     runs-on: windows-latest
+    timeout-minutes: 10
     if: ${{ !github.event.repository.fork }}
     steps:
       - name: Skip if WINGET_PAT is unset
@@ -634,6 +642,7 @@ jobs:
   cdn-sync:
     needs: publish
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: ${{ !github.event.repository.fork }}
     steps:
       - uses: actions/checkout@v4
@@ -682,6 +691,7 @@ jobs:
   smoke-verify:
     needs: [tap-bump, slsa]
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:

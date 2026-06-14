@@ -33,7 +33,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *
  * @type {string}
  */
-const VERSION = '0.0.14';
+const VERSION = '0.0.17';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.
@@ -63,6 +63,61 @@ const EX = Object.freeze({
   NOPERM: 77,
   CONFIG: 78,
 });
+
+/**
+ * Stable error-type registry. Each type is a contract with the agent
+ * caller: the string identifier never changes, the `retryable` field
+ * never flips, the exit code is fixed. Adding a new type is fine;
+ * renaming or removing one is a breaking change.
+ *
+ * Agents drive retry / surface logic from these:
+ *
+ *   - `retryable: true` ⇒ exponential backoff, then re-try
+ *   - `retryable: false` ⇒ surface to the user; don't retry
+ *
+ * Surfaced as JSON when `--output json|ndjson|yaml` is set:
+ *
+ *   {"error": {"type": "rate_limited", "message": "...",
+ *              "retryable": true, "exit_code": 75, "http_status": 429}}
+ *
+ * `stratos schema` includes the type table for introspection.
+ *
+ * @type {Object<string, { exit: number, retryable: boolean, summary: string }>}
+ */
+const ERROR_TYPES = Object.freeze({
+  usage_error:      { exit: EX.USAGE,       retryable: false, summary: 'Invalid command-line invocation.' },
+  auth_missing_key: { exit: EX.CONFIG,      retryable: false, summary: 'Required credential not configured.' },
+  auth_invalid:     { exit: EX.NOPERM,      retryable: false, summary: 'Credential rejected by the API (401/403).' },
+  target_not_found: { exit: EX.UNAVAILABLE, retryable: false, summary: 'Resource does not exist (404).' },
+  rate_limited:     { exit: EX.TEMPFAIL,    retryable: true,  summary: 'API rate limit reached (429); back off and retry.' },
+  server_error:     { exit: EX.TEMPFAIL,    retryable: true,  summary: 'Upstream 5xx response; transient, retry with backoff.' },
+  request_failed:   { exit: EX.TEMPFAIL,    retryable: true,  summary: 'Network or transport failure; retry with backoff.' },
+  data_error:       { exit: EX.DATAERR,     retryable: false, summary: 'Malformed input or response (400/422 or local parse error).' },
+  io_error:         { exit: EX.IOERR,       retryable: false, summary: 'Local filesystem failure (read/write/permissions).' },
+  unavailable:      { exit: EX.UNAVAILABLE, retryable: false, summary: 'Operation could not be completed.' },
+  software_error:   { exit: EX.SOFTWARE,    retryable: false, summary: 'Unexpected internal error (likely a bug).' },
+});
+
+/**
+ * Infer a stable error type from an HTTP status code. Used by
+ * {@link emitFailure} so HTTP failures surface a typed envelope to
+ * agent callers without each call site having to pass `type` explicitly.
+ *
+ * @param {number} status - HTTP status code.
+ * @returns {string} A key from {@link ERROR_TYPES}.
+ */
+function typeForStatus(status) {
+  if (status === 401 || status === 403) return 'auth_invalid';
+  if (status === 404) return 'target_not_found';
+  if (status === 429) return 'rate_limited';
+  if (status >= 500) return 'server_error';
+  /* c8 ignore start -- defensive: 400/422 → data_error; 1xx/2xx/3xx →
+     unavailable. emitFailure is only called for non-2xx in practice, and
+     401/403/404/429/5xx are all hit by the typed-errors test suite. */
+  if (status >= 400) return 'data_error';
+  return 'unavailable';
+  /* c8 ignore stop */
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Styling — ANSI only when stdout is a TTY and NO_COLOR is unset.
@@ -165,15 +220,42 @@ function warn(m)   { diag(`${c.yellow('warning:')} ${m}`); }
  *
  * @param {string} m              - Error message.
  * @param {number} [code=EX.SOFTWARE] - Sysexits-style exit code.
+ * @param {string} [type]         - Stable type key from {@link ERROR_TYPES}.
+ *                                  When supplied, an envelope `{ error: …}`
+ *                                  is emitted to stderr as JSON if the
+ *                                  caller asked for structured output
+ *                                  (`--json`, `--output json|ndjson|yaml`).
  * @returns {never}
  */
-function fatal(m, code = EX.SOFTWARE) {
-  diag(`${c.red('error:')}   ${m}`);
+function fatal(m, code = EX.SOFTWARE, type) {
+  if (type && wantStructuredOutput()) {
+    /* c8 ignore start -- the `|| ERROR_TYPES.software_error` fallback is
+       defensive against an unknown `type` argument; every call site uses
+       a key that exists in ERROR_TYPES today. */
+    const env = ERROR_TYPES[type] || ERROR_TYPES.software_error;
+    /* c8 ignore stop */
+    diag(JSON.stringify({
+      error: {
+        type,
+        message: m,
+        retryable: env.retryable,
+        exit_code: code,
+      },
+    }));
+  } else if (type) {
+    diag(`${c.red('error:')}   [${type}] ${m}`);
+  } else {
+    diag(`${c.red('error:')}   ${m}`);
+  }
   if (FLAGS_GLOBAL.ciHost === 'github') {
     // Newlines inside the message confuse the workflow-command parser;
     // collapse them to space.
     const oneLine = m.replace(/\s+/g, ' ').trim();
-    diag(`::error title=stratos (exit ${code})::${oneLine}`);
+    /* c8 ignore start -- the type-aware bracket-prefix arm of this
+       template-string conditional fires only when both GITHUB_ACTIONS
+       and a typed fatal coincide; the non-typed arm is covered. */
+    diag(`::error title=stratos${type ? ` [${type}]` : ''} (exit ${code})::${oneLine}`);
+    /* c8 ignore stop */
   }
   process.exit(code);
 }
@@ -625,7 +707,7 @@ async function jsonReq(path, init = {}, opts = {}) {
   // read-only = AccessKey if present, otherwise AccountKey.
   const role = opts.role || 'read';
   if (role === 'control') {
-    if (!cfg.ACCOUNT_KEY) throw httpErr('CLOUDCDN_ACCOUNT_KEY is required for this command.', EX.CONFIG);
+    if (!cfg.ACCOUNT_KEY) throw httpErr('CLOUDCDN_ACCOUNT_KEY is required for this command.', EX.CONFIG, 'auth_missing_key');
     headers.AccountKey = cfg.ACCOUNT_KEY;
     headers['x-api-key'] = cfg.ACCOUNT_KEY;
   } else {
@@ -670,7 +752,7 @@ async function jsonReq(path, init = {}, opts = {}) {
   /* c8 ignore start -- `lastErr ? lastErr.message : 'unknown'` falsy arm
      requires `lastErr` to be unset, which only happens if all attempts
      resolve to a Response (in which case the loop returns instead). */
-  throw httpErr(`request failed after ${maxAttempts} attempts: ${lastErr ? lastErr.message : 'unknown'}`, EX.TEMPFAIL);
+  throw httpErr(`request failed after ${maxAttempts} attempts: ${lastErr ? lastErr.message : 'unknown'}`, EX.TEMPFAIL, 'request_failed');
   /* c8 ignore stop */
 }
 
@@ -681,9 +763,17 @@ async function jsonReq(path, init = {}, opts = {}) {
  *
  * @param {string} msg  - Human-readable error message.
  * @param {number} code - One of {@link EX}.
- * @returns {Error & { exitCode: number }}
+ * @param {string} [type] - Stable type key from {@link ERROR_TYPES}.
+ *                          Attached as `error.type` so the top-level
+ *                          catch can forward it to {@link fatal}.
+ * @returns {Error & { exitCode: number, type?: string }}
  */
-function httpErr(msg, code) { const e = new Error(msg); e.exitCode = code; return e; }
+function httpErr(msg, code, type) {
+  const e = new Error(msg);
+  e.exitCode = code;
+  if (type) e.type = type;
+  return e;
+}
 
 /**
  * Emit a JSON body to stdout, pretty-printed on TTY and compact on a pipe.
@@ -699,6 +789,14 @@ function emit(body, status = 200) {
   const fmt = pickOutputFormat();
   if (fmt === 'json') {
     out(JSON.stringify(piped, null, isTTY() ? 2 : 0));
+  } else if (fmt === 'ndjson') {
+    // One record per line. Non-arrays emit as a single line so a pipeline
+    // can treat any command's output uniformly (`stratos … | while read l`).
+    if (Array.isArray(piped)) {
+      for (const row of piped) out(JSON.stringify(row));
+    } else {
+      out(JSON.stringify(piped));
+    }
   } else if (fmt === 'yaml') {
     out(toYaml(piped));
   } else if (fmt === 'csv') {
@@ -711,13 +809,39 @@ function emit(body, status = 200) {
 
 /**
  * Print a non-2xx response body to **stderr** so the user can still read
- * the diagnostic but `… | jq …` pipelines stay clean.
+ * the diagnostic but `… | jq …` pipelines stay clean. When the user
+ * asked for structured output (`--json` / `--output json|ndjson|yaml`),
+ * the body is wrapped in a typed error envelope:
+ *
+ *   {"error": {"type": "rate_limited", "message": "...",
+ *              "retryable": true, "exit_code": 75, "http_status": 429,
+ *              "body": <original body>}}
+ *
+ * Agent callers parse the envelope; humans see the raw body.
  *
  * @param {string|any} body   - Raw body from the failing request.
- * @param {number}     status - HTTP status code (reserved for future framing).
+ * @param {number}     status - HTTP status code.
  * @returns {void}
  */
 function emitFailure(body, status) {
+  if (wantStructuredOutput()) {
+    const type = typeForStatus(status);
+    const env = ERROR_TYPES[type];
+    const message = typeof body === 'string'
+      ? body.slice(0, 200)
+      : (body && (body.message || body.error || body.Message)) || `HTTP ${status}`;
+    diag(JSON.stringify({
+      error: {
+        type,
+        message: String(message),
+        retryable: env.retryable,
+        exit_code: env.exit,
+        http_status: status,
+        body,
+      },
+    }));
+    return;
+  }
   const text = typeof body === 'string' ? body : JSON.stringify(body, null, 2);
   diag(text);
 }
@@ -788,6 +912,15 @@ function emitList(rows, columns) {
   const fmt = pickOutputFormat();
   if (fmt === 'json') {
     out(JSON.stringify(piped, null, isTTY() ? 2 : 0));
+  } else if (fmt === 'ndjson') {
+    // NDJSON's contract is one record per line. For list commands this
+    // is the canonical agent-friendly stream — pipe into jq -c, DuckDB
+    // read_ndjson, or an LLM context window without buffering an array.
+    /* c8 ignore start -- non-array arm only reachable via a jq filter
+       that scalarises the list; not exposed via the CLI. */
+    const items = Array.isArray(piped) ? piped : [piped];
+    /* c8 ignore stop */
+    for (const row of items) out(JSON.stringify(row));
   } else if (fmt === 'yaml') {
     out(toYaml(piped));
   } else if (fmt === 'csv') {
@@ -809,11 +942,11 @@ function emitList(rows, columns) {
  * stays a shortcut for `--output json`; absent both, list-shaped output
  * defaults to a table on TTY and JSON on a pipe.
  *
- * @returns {'json'|'yaml'|'csv'|'table'}
+ * @returns {'json'|'ndjson'|'yaml'|'csv'|'table'}
  */
 function pickOutputFormat() {
   const o = FLAGS_GLOBAL.output;
-  if (o === 'json' || o === 'yaml' || o === 'csv' || o === 'table') return o;
+  if (o === 'json' || o === 'ndjson' || o === 'yaml' || o === 'csv' || o === 'table') return o;
   if (FLAGS_GLOBAL.json) return 'json';
   if (!isTTY()) return 'json';
   return 'table';
@@ -831,7 +964,7 @@ function pickOutputFormat() {
 function wantStructuredOutput() {
   if (FLAGS_GLOBAL.json) return true;
   const o = FLAGS_GLOBAL.output;
-  return o === 'json' || o === 'yaml' || o === 'csv';
+  return o === 'json' || o === 'ndjson' || o === 'yaml' || o === 'csv';
 }
 
 /**
@@ -849,7 +982,13 @@ function applyFilter(body) {
   const expr = FLAGS_GLOBAL.filter;
   if (!expr) return body;
   const { spawnSync } = jqShim;
-  const r = spawnSync('jq', [expr], { input: JSON.stringify(body), encoding: 'utf8' });
+  // jq runs with -c so every output line is a complete compact JSON
+  // value. Without -c, jq pretty-prints objects across multiple
+  // lines and applyFilter's line-by-line parser would fail on the
+  // first opening brace. With -c, single scalars, object
+  // projections, and stream-style outputs all emit one document per
+  // line uniformly.
+  const r = spawnSync('jq', ['-c', expr], { input: JSON.stringify(body), encoding: 'utf8' });
   /* c8 ignore next 3 -- depends on jq being absent; covered by manual QA */
   if (r.error && r.error.code === 'ENOENT') {
     fatal('--filter requires `jq` on PATH (https://stedolan.github.io/jq/).', EX.CONFIG);
@@ -1099,7 +1238,8 @@ ${c.bold('Pipeline & discovery')}
   logs query [--days N]       Historical log query.
 
 ${c.bold('Global options')}
-  --output <fmt>              json | yaml | csv | table  (default: auto).
+  --output <fmt>              json | ndjson | yaml | csv | table  (default: auto).
+                              Alias: jsonl == ndjson.
   --json                      Shortcut for --output json.
   --filter <jq-expr>          Pipe output through jq (jq must be on PATH).
   --quiet | -q                Suppress info logs.
@@ -1225,6 +1365,20 @@ const HELP_BY_COMMAND = {
     'Interactive first-run setup. Walks through profile creation and\n' +
     'writes the result to ~/.config/stratos/config.json. Each prompt\n' +
     'accepts a flag override so the command is scriptable from CI.\n',
+  schema:
+    'stratos schema\n\n' +
+    'Emit a machine-readable command catalogue. Designed for agent\n' +
+    'callers (Claude Code, Cursor) and tools that auto-generate\n' +
+    'completion / docs.\n\n' +
+    'Output formats:\n' +
+    '  --output json (default)   wrapper object with version + commands[]\n' +
+    '  --output ndjson           one command per line — pipes into jq -c,\n' +
+    '                            DuckDB read_ndjson, or an LLM context\n' +
+    '                            without buffering the array\n' +
+    '  --output yaml             human-friendly\n\n' +
+    'Examples:\n' +
+    '  stratos schema | jq \'.commands | map(.name)\'\n' +
+    '  stratos schema --output ndjson | grep cloudcdn_  # MCP-exposed commands\n',
 };
 
 /**
@@ -1238,6 +1392,16 @@ function cmdHelp(rest) {
   if (!topic) { out(HELP_ROOT); return; }
   const h = HELP_BY_COMMAND[topic];
   if (h) { out(h); return; }
+  // Fall back to a synthesised minimum from COMMAND_META so every
+  // command in `stratos schema` has at least a usage line + summary.
+  // Curated entries in HELP_BY_COMMAND take precedence; this is for
+  // the commands whose help is a one-liner anyway (stats, audit,
+  // analytics, ask, search, upgrade, logout, …).
+  const meta = COMMAND_META[topic];
+  if (meta) {
+    out(`stratos ${topic}\n  ${meta.summary}\n  Exit codes: ${meta.exits.join(', ')}\n`);
+    return;
+  }
   diag(`No help for '${topic}'.`);
   process.exit(EX.USAGE);
 }
@@ -1977,7 +2141,7 @@ export async function cmdPurge(positional, flags) {
   } else if (flags.tag) {
     payload = { tags: flagList(flags.tag) };
   } else {
-    if (urls.length === 0) fatal('purge needs at least one URL, --tag, or --everything.', EX.USAGE);
+    if (urls.length === 0) fatal('purge needs at least one URL, --tag, or --everything.', EX.USAGE, 'usage_error');
     payload = { urls };
   }
   if (flags['dry-run']) {
@@ -2005,12 +2169,12 @@ export async function cmdPurge(positional, flags) {
  */
 export async function cmdSigned(positional, flags) {
   const cfg = await envConfig(flags);
-  if (positional.length === 0) fatal('signed needs a path argument.', EX.USAGE);
+  if (positional.length === 0) fatal('signed needs a path argument.', EX.USAGE, 'usage_error');
   const path = positional[0];
   const expires = flags.expires;
-  if (!expires) fatal('signed needs --expires <unix-seconds>.', EX.USAGE);
+  if (!expires) fatal('signed needs --expires <unix-seconds>.', EX.USAGE, 'usage_error');
   const secret = flags.secret || cfg.SIGNED_URL_SECRET;
-  if (!secret) fatal('SIGNED_URL_SECRET (or --secret) is required.', EX.CONFIG);
+  if (!secret) fatal('SIGNED_URL_SECRET (or --secret) is required.', EX.CONFIG, 'auth_missing_key');
 
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -3384,8 +3548,13 @@ function applyGlobalFlags(flags) {
   // --output, --filter, --rate, --otlp-endpoint, --otlp-headers (and env-var fallbacks).
   if (flags.output) {
     const o = String(flags.output).toLowerCase();
-    if (!['json','yaml','csv','table'].includes(o)) fatal(`--output must be json|yaml|csv|table (got "${flags.output}")`, EX.USAGE);
-    FLAGS_GLOBAL.output = o;
+    // `jsonl` is accepted as a contributor-friendly alias for `ndjson` —
+    // same on-the-wire format, the two names are interchangeable in the
+    // wider ecosystem (jq, DuckDB, the openai/anthropic SDKs all accept
+    // either spelling).
+    const norm = o === 'jsonl' ? 'ndjson' : o;
+    if (!['json','ndjson','yaml','csv','table'].includes(norm)) fatal(`--output must be json|ndjson|yaml|csv|table (got "${flags.output}")`, EX.USAGE);
+    FLAGS_GLOBAL.output = norm;
   }
   if (flags.filter !== undefined) FLAGS_GLOBAL.filter = String(flags.filter);
   if (flags.rate !== undefined) {
@@ -3640,6 +3809,7 @@ async function dispatch(cmd, positional, flags) {
     case 'bench':       return cmdBench(flags);
     case 'explain':     return cmdExplain(positional, flags);
     case 'init':        return cmdInit(positional, flags);
+    case 'schema':      cmdSchema(); return;
     case 'mcp':         if (positional[0] !== 'serve') fatal('mcp serve', EX.USAGE); return cmdMcpServe();
     case 'health':      return cmdHealth(flags);
     case 'purge':       return cmdPurge(positional, flags);
@@ -3729,11 +3899,148 @@ function suggestCommand(input) {
  * @type {string[]}
  */
 const KNOWN_COMMANDS = [
-  'version','help','health','purge','signed','assets','insights','stats','analytics',
+  'version','help','schema','health','purge','signed','assets','insights','stats','analytics',
   'audit','zones','rules','tokens','webhooks','storage','logs','ai','image','stream',
   'pipeline','search','ask','passkey','config','mcp','completion','upgrade',
   'login','logout','doctor','bench','explain','init',
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `stratos schema` — machine-readable command catalogue. Designed for
+// agent callers (Claude Code, Cursor, LangGraph harnesses) and for tools
+// that auto-generate completion / docs. The shape is deliberately stable:
+// adding a command appends to `commands[]`, never reshuffles existing
+// fields. Drives the MCP server's `tools/list` (via `MCP_TOOLS`) and the
+// shell completion list (via `KNOWN_COMMANDS`).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Per-command static metadata. Each entry declares the sysexits codes
+ * the command can produce, the matching MCP tool name (if any), and the
+ * release that introduced the command. Used by {@link buildSchema}.
+ *
+ * Exits are a closed set drawn from {@link EX}. Adding a code here is a
+ * contract: agents may use it to drive retry / surface logic.
+ *
+ * @type {Object<string, { exits: number[], mcp_tool?: string, since: string, summary: string }>}
+ */
+const COMMAND_META = Object.freeze({
+  version:    { exits: [EX.OK],                                                              since: '0.0.1', summary: 'Print the CLI version.' },
+  help:       { exits: [EX.OK, EX.USAGE],                                                    since: '0.0.1', summary: 'Print root or per-command help.' },
+  schema:     { exits: [EX.OK, EX.USAGE],                                                    since: '0.0.16', summary: 'Emit a machine-readable command catalogue (JSON / NDJSON / YAML).' },
+  health:     { exits: [EX.OK, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM],   mcp_tool: 'cloudcdn_health',         since: '0.0.1', summary: 'Liveness probe and edge diagnostics.' },
+  purge:      { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG], mcp_tool: 'cloudcdn_purge',      since: '0.0.1', summary: 'Invalidate cache by URL, tag, or wholesale.' },
+  signed:     { exits: [EX.OK, EX.USAGE, EX.CONFIG],                       mcp_tool: 'cloudcdn_signed',         since: '0.0.1', summary: 'Mint an offline HMAC-SHA256 signed URL.' },
+  assets:     { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG], mcp_tool: 'cloudcdn_assets',    since: '0.0.1', summary: 'List or inspect the asset catalogue.' },
+  insights:   { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG], mcp_tool: 'cloudcdn_insights_summary', since: '0.0.1', summary: 'Aggregated traffic / cache / error insights.' },
+  stats:      { exits: [EX.OK, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                              since: '0.0.1', summary: 'Numeric snapshot — requests, bandwidth, cache ratio.' },
+  analytics:  { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.5', summary: 'Raw analytics filter query.' },
+  audit:      { exits: [EX.OK, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                              since: '0.0.5', summary: 'Audit-trail query (immutable activity log).' },
+  zones:      { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.4', summary: 'Tenant zones and custom-domain attachment.' },
+  rules:      { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.4', summary: '_headers / _redirects as code with LCS diff.' },
+  tokens:     { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.4', summary: 'Scoped API tokens (list / create / rm).' },
+  webhooks:   { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.4', summary: 'Event subscriptions (list / add / rm).' },
+  storage:    { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG, EX.IOERR],           since: '0.0.4', summary: 'Object CRUD plus recursive sync.' },
+  logs:       { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG], mcp_tool: 'cloudcdn_logs_query', since: '0.0.5', summary: 'Tail or query edge logs.' },
+  ai:         { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG], mcp_tool: 'cloudcdn_ai_alt',     since: '0.0.2', summary: 'Vision endpoints (alt / moderate / crop / bg-remove).' },
+  image:      { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.2', summary: 'Image transforms, BlurHash, LQIP, format auto.' },
+  stream:     { exits: [EX.OK, EX.USAGE],                                                                       since: '0.0.5', summary: 'HLS playlist builder.' },
+  pipeline:   { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.6', summary: 'SVG-to-asset-pack scaffold submission.' },
+  search:     { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG], mcp_tool: 'cloudcdn_search',     since: '0.0.5', summary: 'Hybrid asset search.' },
+  ask:        { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.5', summary: 'CloudCDN AI concierge.' },
+  passkey:    { exits: [EX.UNAVAILABLE],                                                                        since: '0.0.5', summary: 'WebAuthn ceremony bootstrapper (browser).' },
+  config:     { exits: [EX.OK, EX.USAGE, EX.DATAERR, EX.IOERR],                                                 since: '0.0.3', summary: 'Profile management (list / get / set / edit).' },
+  mcp:        { exits: [EX.OK, EX.USAGE],                                                                       since: '0.0.3', summary: 'Run the Model Context Protocol stdio server.' },
+  completion: { exits: [EX.OK, EX.USAGE],                                                                       since: '0.0.1', summary: 'Emit shell completion script.' },
+  upgrade:    { exits: [EX.OK, EX.UNAVAILABLE],                                                                 since: '0.0.3', summary: 'Re-run the pinned installer.' },
+  login:      { exits: [EX.OK, EX.USAGE, EX.CONFIG, EX.IOERR],                                                  since: '0.0.3', summary: 'Store credentials in the OS keychain.' },
+  logout:     { exits: [EX.OK],                                                                                 since: '0.0.3', summary: 'Clear Stratos secrets from the keychain.' },
+  doctor:     { exits: [EX.OK, EX.UNAVAILABLE],                                                                 since: '0.0.3', summary: 'Environment + reachability diagnostics.' },
+  bench:      { exits: [EX.OK, EX.UNAVAILABLE],                                                                 since: '0.0.3', summary: 'Cold-start + sampled-request latency benchmark.' },
+  explain:    { exits: [EX.OK, EX.USAGE],                                                                       since: '0.0.4', summary: 'Look up cause + fix for an exit code or HTTP status.' },
+  init:       { exits: [EX.OK, EX.USAGE, EX.IOERR],                                                             since: '0.0.4', summary: 'Interactive first-run setup.' },
+});
+
+/**
+ * Build the schema object. Deterministic — same input (KNOWN_COMMANDS,
+ * COMMAND_META, HELP_BY_COMMAND, VERSION) produces byte-identical output,
+ * so the result is safe to cache, hash, or attest.
+ *
+ * @returns {{
+ *   $schema: string, tool: string, version: string, homepage: string,
+ *   generated_at: string, commands: Array<{
+ *     name: string, summary: string, usage: string, exits: number[],
+ *     mcp_tool?: string, since: string
+ *   }>
+ * }}
+ */
+function buildSchema() {
+  const commands = KNOWN_COMMANDS.map((name) => {
+    const meta = COMMAND_META[name];
+    /* c8 ignore start -- defensive: every KNOWN_COMMANDS entry has a meta
+       row today (asserted by test/v016-schema.test.mjs). The fallback
+       keeps `stratos schema` working if a contributor adds a command to
+       KNOWN_COMMANDS without an entry, instead of crashing. */
+    if (!meta) {
+      return { name, summary: '(undocumented)', usage: `stratos ${name}`, exits: [EX.OK], since: 'unknown' };
+    }
+    /* c8 ignore stop */
+    const help = HELP_BY_COMMAND[name];
+    // Usage line = the first non-empty line of HELP_BY_COMMAND, fallback
+    // to a synthesised `stratos <name>` if the command has no help text
+    // (notably: `version`, which is handled by the router pre-dispatch).
+    let usage = `stratos ${name}`;
+    if (help) {
+      const firstLine = help.split('\n').find((l) => l.trim());
+      /* c8 ignore next -- defensive: every HELP_BY_COMMAND entry has at
+         least one non-empty line; the fallback exists so a future
+         `'\n\n'` entry wouldn't crash schema. */
+      if (firstLine) usage = firstLine;
+    }
+    const entry = {
+      name,
+      summary: meta.summary,
+      usage: usage.trim(),
+      exits: meta.exits.slice().sort((a, b) => a - b),
+      since: meta.since,
+    };
+    if (meta.mcp_tool) entry.mcp_tool = meta.mcp_tool;
+    return entry;
+  });
+  // Expose the typed-error registry too. Agents reading the schema get
+  // both the verb surface AND the error contract in one document — no
+  // second roundtrip to discover what `type` strings to expect.
+  const error_types = Object.fromEntries(
+    Object.entries(ERROR_TYPES).map(([k, v]) => [k, { exit: v.exit, retryable: v.retryable, summary: v.summary }]),
+  );
+  return {
+    $schema: 'https://stratos.cloudcdn.pro/schema/v1.json',
+    tool: 'stratos',
+    version: VERSION,
+    homepage: 'https://github.com/sebastienrousseau/stratos#readme',
+    commands,
+    error_types,
+  };
+}
+
+/**
+ * `stratos schema` — emit the schema. Routes through {@link emit} so it
+ * honours `--output json|ndjson|yaml`. NDJSON streams one command per
+ * line (the agent-friendly default for large catalogues).
+ *
+ * @returns {void}
+ */
+function cmdSchema() {
+  const schema = buildSchema();
+  if (pickOutputFormat() === 'ndjson') {
+    // For NDJSON, stream just the commands array (the wrapper metadata
+    // would be one extra opaque line). Keep the contract: each line is
+    // a complete command record an agent can parse.
+    emit(schema.commands);
+    return;
+  }
+  emit(schema);
+}
 
 // Exports for testing.
 export {
@@ -3747,7 +4054,8 @@ export {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((e) => {
     const code = (e && e.exitCode) ? e.exitCode : EX.SOFTWARE;
-    fatal(e && e.message ? e.message : String(e), code);
+    const type = (e && e.type) || (e && e.exitCode ? undefined : 'software_error');
+    fatal(e && e.message ? e.message : String(e), code, type);
   });
 }
 /* v8 ignore stop */

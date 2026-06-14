@@ -11,6 +11,8 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'stratos.mjs');
 
@@ -385,22 +387,27 @@ test('FORCE_TTY=1 + bare invocation: assets list non-Data body emits (L2063)', a
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('rules diff: identical remote/local exits 0', async () => {
-  const { srv, base } = await startServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('same\n');
-  });
-  const tmp = await import('node:fs/promises').then((m) => m.mkdtemp(
-    join(process.env.TMPDIR || '/tmp', 'stratos-diff-')));
-  const fs = await import('node:fs/promises');
+  // Both setup steps (server + tmpdir) go inside try so srv.close() always
+  // runs — a thrown mkdtemp (the v0.0.14 bug: hardcoded '/tmp' which doesn't
+  // exist on Windows) used to leak the HTTP listener and hang `node --test`
+  // for the workflow's full 6h timeout.
+  let srv, tmp;
   try {
+    ({ srv } = await startServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('same\n');
+    }));
+    const { port } = srv.address();
+    const base = `http://127.0.0.1:${port}`;
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-diff-'));
     const file = join(tmp, '_headers');
-    await fs.writeFile(file, 'same\n');
+    await writeFile(file, 'same\n');
     const r = await run(['rules', 'diff', '_headers', '-f', file],
       { ...COMMON_AUTH, CLOUDCDN_URL: base });
     assert.equal(r.status, 0);
   } finally {
-    srv.close();
-    await fs.rm(tmp, { recursive: true, force: true });
+    if (srv) srv.close();
+    if (tmp) await rm(tmp, { recursive: true, force: true });
   }
 });
 

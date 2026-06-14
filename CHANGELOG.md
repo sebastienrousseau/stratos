@@ -10,6 +10,45 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.17] — 2026-06-14
+
+### Added — schema-driven regression suite (Phase 0 follow-up)
+
+- **50 new regression tests** across three new files that pin the public surface as a contract:
+  - `test/v017-regression-manifest.test.mjs` (15 tests) — schema/MCP_TOOLS/EX/error_types/exports cross-reference. Catches drift where a new command is added without updating one of the four parallel registries. Every `EX.*` code must be referenced somewhere; every `MCP_TOOLS` entry must map to a known command verb; every `error_types.retryable` bit is the documented contract.
+  - `test/v017-regression-cli-smoke.test.mjs` (20 tests) — `stratos help <cmd>` and `stratos <cmd> --help` exit cleanly for every command in `KNOWN_COMMANDS`. Subcommand routers reject unknown subcommands with `EX.USAGE`. `stratos completion <shell>` renders for bash/zsh/fish/powershell. `stratos explain` works for every `EX` value, the documented symbolic aliases, and common HTTP statuses. `stratos halth` produces a Levenshtein "did you mean health" suggestion.
+  - `test/v017-regression-output-matrix.test.mjs` (15 tests) — every documented `--output` format (json, ndjson, jsonl alias, yaml, csv, table) renders against a mock server for both single-object and list bodies. `--json` is verified as a shorthand for `--output json`. `--filter` jq pipeline works on single-line expressions.
+
+### Fixed
+
+- **`stratos help <cmd>` now works for every command** in `KNOWN_COMMANDS`, not just the ~24 with curated entries in `HELP_BY_COMMAND`. Falls back to a synthesised `stratos <cmd>\n  <summary>\n  Exit codes: <list>` from `COMMAND_META` when no hand-tuned entry exists. Closes the "stratos help stats / audit / analytics / ask / search / upgrade / logout / stream / pipeline / passkey returns EX.USAGE" surface that the regression suite caught on first run.
+- **`--filter` now handles all jq output shapes.** `applyFilter()` parses each line of jq's stdout as an independent JSON value, so filters that produced pretty-printed multi-line single documents (e.g. `{status, edge}`) used to fail with "jq produced non-JSON output". Fixed by passing `-c` (compact) to jq — every line is now a complete JSON document, so single values, stream-style outputs (`.[].id`), and object projections (`{a, b}`) all work uniformly. Single-line expressions and per-line streams were already working; this just closes the multi-line gap. Discovered by the v017 regression-output-matrix suite on first run.
+- Bumps `EXPECTED_SHA` in `install/install.{sh,ps1}` to match the v0.0.17 bytes.
+
+## [0.0.16] — 2026-06-14
+
+### Added — agent-first DevEx (Phase 1.1 + 1.2 + 1.3)
+
+- **`stratos schema`** — new command emitting a machine-readable catalogue of every CLI verb. Drives MCP tool registration, shell completion, doc generation, and external agent introspection from a single source of truth (`COMMAND_META` × `KNOWN_COMMANDS` × `MCP_TOOLS`). Per-command shape: `{ name, summary, usage, exits[], mcp_tool?, since }`. Top-level wrapper: `{ $schema, tool, version, homepage, commands[], error_types{} }`. Deterministic — byte-identical across runs given the same source, so the output is safe to cache, hash, or attest. `stratos schema --output ndjson` streams one command per line for pipelines that don't want to buffer the array.
+- **`--output ndjson` (alias `jsonl`)** — new format for emitting one JSON record per line, no surrounding array. Now the canonical agent-friendly default for list-shaped commands (`tokens list`, `assets`, `logs query`, `schema`). Single-object commands emit a single line so a downstream `while read line` loop works uniformly. Pipes cleanly into `jq -c`, DuckDB `read_ndjson`, or an LLM context window without buffering.
+- **Stable typed errors** — every failure path can now carry a `type` string from the `ERROR_TYPES` registry (`usage_error`, `auth_missing_key`, `auth_invalid`, `target_not_found`, `rate_limited`, `server_error`, `request_failed`, `data_error`, `io_error`, `unavailable`, `software_error`). When a structured output flag is set, errors land on stderr as a JSON envelope an agent can parse — `{"error": {"type":"rate_limited", "message":"…", "retryable":true, "exit_code":75, "http_status":429, "body":…}}`. HTTP 401/403/404/429/5xx infer the right type via `typeForStatus()`. The retryable bit is a contract: `rate_limited`, `server_error`, `request_failed` are always `true`; everything else is `false`. Agents drive backoff loops directly from this. `stratos schema` includes the typed-error registry so a caller gets both the verb surface and the error contract in one document.
+
+### Background
+
+The 2026 dividing line for CLIs is agentic-first: Cloudflare is rebuilding Wrangler as `cf` specifically because "agents are the primary customer," Algolia publicly rewrote its CLI for AI agents, and Vercel/Netlify shipped first-party MCP servers. Stratos was already MCP-server-shipped; this release adds the three primitives that close the rest of the gap — a schema verb so an agent can introspect the surface without parsing `--help`, NDJSON so streaming output composes with the standard agent-pipeline toolchain, and typed errors so an agent can drive retry / surface logic without regex-matching on human strings. See `~/Drop/stratos-ip.md` (the implementation plan) for the full Phase 1 narrative.
+
+### Fixed
+
+- Bumps `EXPECTED_SHA` in `install/install.{sh,ps1}` to match the v0.0.16 bytes (`b76d4ef2…`).
+
+## [0.0.15] — 2026-06-13
+
+### Fixed
+
+- **`check-versions` CI gate was failing on `main`** because `install/install.sh` and `install/install.ps1` still pinned the v0.0.13 `EXPECTED_SHA` (`51c70dd1…`) while `stratos.mjs` had moved on. Both installer SHAs are now refreshed to match the v0.0.15 `stratos.mjs` bytes. The drift would have aborted any release tag at preflight, so this clears the path for the next release.
+- **`winget` manifests now target schema 1.12.0** (was 1.6.0). The Microsoft `winget-pkgs` repo deprecated 1.6 manifests after 2026 and new submissions on the older schema started getting rejected. Bumps `ManifestVersion` and the `$schema` URLs in the three YAMLs emitted by `scripts/make-winget.mjs`. Thanks to @DandelionSprout for the catch in [#17](https://github.com/sebastienrousseau/stratos/pull/17).
+- **Windows CI matrix had been hanging for the full 6h job timeout** since the v013 branch-coverage push merged. `test/v011-branch-push.test.mjs`'s `rules diff: identical remote/local exits 0` started its mock HTTP listener *before* calling `mkdtemp(process.env.TMPDIR || '/tmp', …)`. On Windows there is no `/tmp`, so `mkdtemp` threw `ENOENT` before the `try`/`finally`, leaving the listener open — and an open server keeps the Node test process alive forever. Fixed by switching to `os.tmpdir()` and moving the server start *inside* the `try` so `srv.close()` runs even if setup throws. Also added `timeout-minutes: 15` to the `test` job so any future handle-leak fails the matrix in 15 min instead of 6 h.
+
 ## [0.0.14] — 2026-06-02
 
 ### Fixed
@@ -302,6 +341,9 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.17]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.17
+[0.0.16]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.16
+[0.0.15]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.15
 [0.0.14]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.14
 [0.0.13]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.13
 [0.0.12]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.12
