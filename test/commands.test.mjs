@@ -414,10 +414,11 @@ test('rules get: prints Content field', async () => {
 });
 
 test('rules set: POSTs File + Content from -f flag', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-rules-'));
-  const f = join(tmp, '_headers');
-  await writeFile(f, '/api/* X-New: 1\n');
+  let tmp;
   try {
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-rules-'));
+    const f = join(tmp, '_headers');
+    await writeFile(f, '/api/* X-New: 1\n');
     let received;
     await withServer((req, res) => {
       let body = '';
@@ -433,7 +434,7 @@ test('rules set: POSTs File + Content from -f flag', async () => {
       assert.equal(received.File, '_headers');
       assert.match(received.Content, /X-New: 1/);
     });
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally { if (tmp) await rm(tmp, { recursive: true, force: true }); }
 });
 
 test('rules set: reads from stdin when no -f', async () => {
@@ -609,10 +610,11 @@ test('webhooks unknown subcommand fails EX_USAGE', async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('storage put: PUTs file bytes to /api/storage/<encoded-path>', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-st-'));
-  const local = join(tmp, 'file.txt');
-  await writeFile(local, 'hello world');
+  let tmp;
   try {
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-st-'));
+    const local = join(tmp, 'file.txt');
+    await writeFile(local, 'hello world');
     let received;
     await withServer((req, res) => {
       const chunks = [];
@@ -629,7 +631,7 @@ test('storage put: PUTs file bytes to /api/storage/<encoded-path>', async () => 
       assert.match(received.url, /\/api\/storage\/site\/index\.html/);
       assert.equal(received.body, 'hello world');
     });
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally { if (tmp) await rm(tmp, { recursive: true, force: true }); }
 });
 
 test('storage put: missing args fails EX_USAGE', async () => {
@@ -719,17 +721,18 @@ test('storage ls: non-array body is emitted as object', async () => {
 });
 
 test('storage sync: dry-run lists local→remote plan', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-st-'));
-  await writeFile(join(tmp, 'a.html'), 'a');
-  await writeFile(join(tmp, 'b.css'), 'b');
+  let tmp;
   try {
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-st-'));
+    await writeFile(join(tmp, 'a.html'), 'a');
+    await writeFile(join(tmp, 'b.css'), 'b');
     const r = await runAsync(['storage', 'sync', tmp, '/site', '--dry-run', '--json'],
       { CLOUDCDN_ACCOUNT_KEY: 'k' });
     assert.equal(r.status, 0);
     const rows = JSON.parse(r.stdout);
     assert.equal(rows.length, 2);
     assert.match(rows[0].remote, /^\/site\//);
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally { if (tmp) await rm(tmp, { recursive: true, force: true }); }
 });
 
 test('storage sync: missing args fails EX_USAGE', async () => {
@@ -738,9 +741,10 @@ test('storage sync: missing args fails EX_USAGE', async () => {
 });
 
 test('storage sync: posts batch to /api/storage/batch', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-st-'));
-  await writeFile(join(tmp, 'a.html'), 'hello');
+  let tmp;
   try {
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-st-'));
+    await writeFile(join(tmp, 'a.html'), 'hello');
     let received;
     await withServer((req, res) => {
       let body = '';
@@ -756,7 +760,7 @@ test('storage sync: posts batch to /api/storage/batch', async () => {
       assert.equal(received.url, '/api/storage/batch');
       assert.equal(received.body.files[0].path, '/site/a.html');
     });
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally { if (tmp) await rm(tmp, { recursive: true, force: true }); }
 });
 
 test('storage unknown subcommand fails EX_USAGE', async () => {
@@ -987,10 +991,11 @@ test('stream: missing video fails EX_USAGE', async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('pipeline submit: POSTs base64 SVG + name + flags', async () => {
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-pl-'));
-  const svg = join(tmp, 'logo.svg');
-  await writeFile(svg, '<svg/>');
+  let tmp;
   try {
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-pl-'));
+    const svg = join(tmp, 'logo.svg');
+    await writeFile(svg, '<svg/>');
     let received;
     await withServer((req, res) => {
       let body = '';
@@ -1011,7 +1016,7 @@ test('pipeline submit: POSTs base64 SVG + name + flags', async () => {
       assert.equal(received.generateBanners, true);
       assert.equal(Buffer.from(received.svg, 'base64').toString(), '<svg/>');
     });
-  } finally { await rm(tmp, { recursive: true, force: true }); }
+  } finally { if (tmp) await rm(tmp, { recursive: true, force: true }); }
 });
 
 test('pipeline submit: missing --svg fails EX_USAGE', async () => {

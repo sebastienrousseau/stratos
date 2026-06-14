@@ -342,12 +342,13 @@ test('zones list --output yaml: empty array emits "[]" (L878)', async () => {
 test('rules diff: trailing-only-added arm (L2400)', async () => {
   // Remote returns shorter content; local file has extra trailing lines.
   const remote = 'line1\nline2\n';
-  const { srv, base } = await startServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end(remote);
-  });
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-diff-'));
+  let srv, tmp, base;
   try {
+    ({ srv, base } = await startServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(remote);
+    }));
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-diff-'));
     const file = join(tmp, '_headers');
     await writeFile(file, 'line1\nline2\nline3-added\nline4-added\n');
     const r = await run(['rules', 'diff', '_headers', '-f', file],
@@ -356,20 +357,21 @@ test('rules diff: trailing-only-added arm (L2400)', async () => {
     assert.ok(r.status === 69 || r.status === 0, `unexpected status ${r.status}`);
     assert.match(r.stdout + r.stderr, /\+\s*line3-added/);
   } finally {
-    srv.close();
-    await rm(tmp, { recursive: true, force: true });
+    if (srv) srv.close();
+    if (tmp) await rm(tmp, { recursive: true, force: true });
   }
 });
 
 test('rules diff: trailing-only-removed arm (L2399)', async () => {
   // Remote returns extra trailing lines; local has fewer.
   const remote = 'line1\nline2\nline3-extra\nline4-extra\n';
-  const { srv, base } = await startServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end(remote);
-  });
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-diff-'));
+  let srv, tmp, base;
   try {
+    ({ srv, base } = await startServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(remote);
+    }));
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-diff-'));
     const file = join(tmp, '_headers');
     await writeFile(file, 'line1\nline2\n');
     const r = await run(['rules', 'diff', '_headers', '-f', file],
@@ -377,8 +379,8 @@ test('rules diff: trailing-only-removed arm (L2399)', async () => {
     assert.ok(r.status === 69 || r.status === 0, `unexpected status ${r.status}`);
     assert.match(r.stdout + r.stderr, /-\s*line3-extra/);
   } finally {
-    srv.close();
-    await rm(tmp, { recursive: true, force: true });
+    if (srv) srv.close();
+    if (tmp) await rm(tmp, { recursive: true, force: true });
   }
 });
 
@@ -593,20 +595,21 @@ test('passkey login: subcommand short-circuits default (L2909)', async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('rules diff: --file long flag (L2324 — flags.file truthy)', async () => {
-  const { srv, base } = await startServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('same\n');
-  });
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-diff-'));
+  let srv, tmp, base;
   try {
+    ({ srv, base } = await startServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('same\n');
+    }));
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-diff-'));
     const file = join(tmp, '_headers');
     await writeFile(file, 'same\n');
     const r = await run(['rules', 'diff', '_headers', '--file', file],
       { ...COMMON_AUTH, CLOUDCDN_URL: base });
     assert.equal(r.status, 0);
   } finally {
-    srv.close();
-    await rm(tmp, { recursive: true, force: true });
+    if (srv) srv.close();
+    if (tmp) await rm(tmp, { recursive: true, force: true });
   }
 });
 
@@ -645,19 +648,20 @@ test('bench: default iteration count (L1732 — neither flag set)', async () => 
 });
 
 test('rules diff: positional[2] path (L2324 — both flags absent)', async () => {
-  const { srv, base } = await startServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('same\n');
-  });
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-diff-'));
+  let srv, tmp, base;
   try {
+    ({ srv, base } = await startServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('same\n');
+    }));
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-diff-'));
     const file = join(tmp, '_headers');
     await writeFile(file, 'same\n');
     const r = await run(['rules', 'diff', '_headers', file],
       { ...COMMON_AUTH, CLOUDCDN_URL: base });
     assert.equal(r.status, 0);
   } finally {
-    srv.close();
-    await rm(tmp, { recursive: true, force: true });
+    if (srv) srv.close();
+    if (tmp) await rm(tmp, { recursive: true, force: true });
   }
 });

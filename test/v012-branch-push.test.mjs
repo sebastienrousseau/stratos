@@ -140,9 +140,10 @@ test('tokens create (TTY): isTTY() warn fires (L2460)', async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('pipeline submit: explicit "submit" subcommand (L2926)', async () => {
-  const { srv, base } = await startServer(json({ id: 'pip1' }));
-  const tmp = await mkdtemp(join(tmpdir(), 'stratos-pip-'));
+  let srv, tmp, base;
   try {
+    ({ srv, base } = await startServer(json({ id: 'pip1' })));
+    tmp = await mkdtemp(join(tmpdir(), 'stratos-pip-'));
     const svg = join(tmp, 'x.svg');
     await writeFile(svg, '<svg/>');
     const r = await run(
@@ -151,8 +152,8 @@ test('pipeline submit: explicit "submit" subcommand (L2926)', async () => {
     );
     assert.equal(r.status, 0);
   } finally {
-    srv.close();
-    await rm(tmp, { recursive: true, force: true });
+    if (srv) srv.close();
+    if (tmp) await rm(tmp, { recursive: true, force: true });
   }
 });
 
