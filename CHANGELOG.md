@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.21] — 2026-06-16
+
+### Fixed — root help and macOS symlink-path entry guard (post-v0.0.20 verification)
+
+Two latent issues surfaced during the v0.0.20 post-release verification pass. Neither affects any supported install path; both are tightenings to keep the surface honest.
+
+- **Root `stratos help` now lists `cost`, `carbon`, and `rules validate`.** The v0.0.20 release added the commands and shipped per-command help (`stratos help cost`, etc.), `stratos schema`, and MCP `tools/list` entries — but the top-level help index was not updated. Discoverability for the FinOps differentiator was broken at exactly the surface a first-time user reads. Adds a dedicated `Cost & sustainability` section to `HELP_ROOT` and slots `rules validate` next to its `get`/`set`/`diff` siblings.
+- **Entry guard now realpath-canonicalizes `process.argv[1]`** before comparing against `fileURLToPath(import.meta.url)`. On macOS, `/tmp` is a symlink to `/private/tmp`; the ESM loader canonicalizes `import.meta.url` through realpath but `argv[1]` retains the raw path the user typed, so a direct `node /tmp/.../stratos.mjs version` silently exited 0 with no output. Same class as the v0.0.18 Bun `$bunfs` mismatch (v0.0.19 changelog). Supported install paths (npm bin shim, install.sh, brew, docker, scoop, winget) are all canonical end-to-end and were never affected; this hardens the rarely-used direct-Node-invocation path so it can't regress silently again.
+
+### Engineering notes
+
+- New regression test exercises both fixes end-to-end through a symlinked directory so the symlink-path bug stays caught regardless of platform (`/tmp` is a regular directory on Linux runners, so the v0.0.20 test matrix never had a chance of catching it).
+- `realpathSync` is imported from `node:fs` — same module already imported for `createReadStream`. No new dependency, no new bundle weight.
+
 ## [0.0.20] — 2026-06-15
 
 ### Added — Feature Breadth tier-7 + tier-1 (the FinOps differentiator + a DX win)
