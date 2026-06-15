@@ -43,7 +43,7 @@ jobs:
       url: https://www.npmjs.com/package/@cloudcdn/stratos
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
@@ -207,7 +207,7 @@ jobs:
           - { runner: windows-latest, target: win-x64,      out: stratos-win-x64.exe,  smoke: true  }
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '24' }
 
       - name: Install Bun
@@ -331,7 +331,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '24' }
 
       - name: Strip v-prefix off the tag
