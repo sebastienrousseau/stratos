@@ -10,6 +10,33 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.20] — 2026-06-15
+
+### Added — Feature Breadth tier-7 + tier-1 (the FinOps differentiator + a DX win)
+
+Implementation plan (`~/Drop/stratos-ip.md`) Phase 3.1 + 3.2 + a Tier-1 entry.
+
+- **`stratos cost [--days N] [--zone Z] [--projected]`** — spend breakdown by region. Reads `/api/billing/usage` when CloudCDN exposes it (some deployments don't yet); falls back to projecting from `/api/core/statistics` × the published rate card (`COST_RATES`). `--projected` forces the projection mode explicitly. Output columns: `region`, `requests`, `bandwidth_gb`, `cost_usd`. Surfaces as MCP tool `cloudcdn_cost`.
+- **`stratos carbon [--days N] [--region X] [--intensity-below N]`** — energy + CO2e attribution for cached traffic. Computes `compute_kwh + transfer_kwh` per region from documented coefficients (`CARBON_DEFAULTS`), then multiplies by grid intensity. Live intensity comes from the [Electricity Maps](https://www.electricitymaps.com) public API (free tier — set `ELECTRICITY_MAPS_TOKEN` for the keyed tier); on any failure (network glitch, missing region, rate limit), falls back to documented per-region defaults so the command never hard-fails on a network blip. **`--intensity-below N`** is the carbon-aware deploy gate: exits 0 if at least one region's grid intensity is below the threshold, 69 otherwise. Use as: `stratos carbon --intensity-below 250 && stratos deploy`. Surfaces as MCP tool `cloudcdn_carbon`.
+- **`stratos rules validate <_headers|_redirects> -f <file>`** — offline structural validator for the two config-as-code formats. Catches the common typos (bad URL pattern, missing colon in header, malformed redirect status, wrong token count) at PR-review time instead of at deploy time. Exits 0 on clean, 65 (EX_DATAERR) with a line-by-line issue list otherwise. No API call.
+
+### Documentation
+
+- **`ROADMAP.md`** — new file mapping the 8 tiers of Feature Breadth work (existing-API completion → deployments → edge compute → edge data → security → identity → FinOps → compliance) against CloudCDN's platform-side API rollout. Tiers 2, 3, 4 are CloudCDN-confirmed roadmapped; the file tracks status transitions (`planned` → `next` → `shipping` → `done`) over time. Per the rating math in the implementation plan, completing all tiers lifts Feature Breadth from v0.0.20's ~6/10 to ~9.5/10 over 12–18 months.
+
+### Background
+
+The implementation plan's Phase 3 called `stratos cost` + `stratos carbon` "the talkable feature that earns Console.dev / TLDR placement" — nobody else in the CDN-CLI space has shipped sustainability primitives at the terminal. The FinOps Foundation formalised Cloud Sustainability as a framework capability in 2026; Greenpixie / Opencost surface this for IaC but no CDN CLI does. v0.0.20 ships both. `stratos carbon --intensity-below` is the carbon-aware deploy gate that the [byteiota — FinOps + GreenOps 2026](https://byteiota.com/finops-meets-greenops-in-2026-cloud-costs-carbon/) writeup specifically called out as "talked about, almost no CLI implements it."
+
+The `rules validate` addition is a Tier-1 DX gap that didn't need a platform change — it caught me out twice in the v013-branch-push tests when typo'd `_headers` lines silently passed `rules set` then exploded at edge-time. Now they fail at `validate` time, before the file ever reaches the API.
+
+### Engineering notes
+
+- 19 new tests (`test/v020-cost-carbon.test.mjs`) covering happy path + auth-error + threshold-gate + region-fallback + zone-flag forwarding + MCP dispatch for both new tools.
+- `stratos schema` now reports **36 commands** (was 34). Both new commands carry `mcp_tool` entries; `cost` and `carbon` are also registered in `MCP_TOOLS` with proper input schemas so MCP hosts (Claude Code, Cursor) get them automatically.
+- `rules` command's exits[] now includes `EX.DATAERR` (65); the manifest regression suite caught this drift on first run.
+- 603 / 603 tests pass; 100 / 100 / 100 / 100 coverage held (some defensive nullish-coalesce arms wear `c8 ignore` comments with explanations).
+
 ## [0.0.19] — 2026-06-14
 
 ### Fixed
@@ -381,6 +408,7 @@ repository, where the CLI has been developed and tested since 2026-05.
   `https://cloudcdn.pro`). Lets you point Stratos at staging or
   self-hosted edges without recompiling.
 
+[0.0.20]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.20
 [0.0.19]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.19
 [0.0.18]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.18
 [0.0.17]: https://github.com/sebastienrousseau/stratos/releases/tag/v0.0.17
