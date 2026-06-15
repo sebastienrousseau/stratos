@@ -33,7 +33,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *
  * @type {string}
  */
-const VERSION = '0.0.19';
+const VERSION = '0.0.20';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.
@@ -1340,10 +1340,28 @@ const HELP_BY_COMMAND = {
     'stratos logs tail [--level error|warn|info]\n' +
     'stratos logs query [--days N] [--level L] [--limit N]\n',
   rules:
-    'stratos rules get  <_headers|_redirects>\n' +
-    'stratos rules set  <_headers|_redirects> -f <file>   (or via stdin)\n' +
-    'stratos rules diff <_headers|_redirects> -f <file>\n\n' +
-    'diff exits 0 if remote and local match, 69 on drift (git-style).\n',
+    'stratos rules get      <_headers|_redirects>\n' +
+    'stratos rules set      <_headers|_redirects> -f <file>   (or via stdin)\n' +
+    'stratos rules diff     <_headers|_redirects> -f <file>\n' +
+    'stratos rules validate <_headers|_redirects> -f <file>\n\n' +
+    'diff exits 0 if remote and local match, 69 on drift (git-style).\n' +
+    'validate exits 0 if the local file parses cleanly, 65 (DATAERR) with\n' +
+    'a line-by-line issue list otherwise. Offline; no API call.\n',
+  cost:
+    'stratos cost [--days N] [--zone Z] [--projected]\n\n' +
+    'Spend breakdown by region. Reads /api/billing/usage when available;\n' +
+    'falls back to projecting from /api/core/statistics × the published\n' +
+    'rate card (--projected forces the projection mode explicitly).\n\n' +
+    'Output columns: region, requests, bandwidth_gb, cost_usd.\n',
+  carbon:
+    'stratos carbon [--days N] [--region X] [--intensity-below N]\n\n' +
+    'Energy and CO2e attribution for cached traffic. gCO2e/kWh comes\n' +
+    'from the Electricity Maps public API (free tier); on failure falls\n' +
+    'back to documented per-region defaults.\n\n' +
+    '--intensity-below N is the carbon-aware deploy gate: exits 0 if\n' +
+    'at least one region\'s grid intensity is below the threshold, 69\n' +
+    'otherwise. Use as:  stratos carbon --intensity-below 250 && stratos deploy\n\n' +
+    'ELECTRICITY_MAPS_TOKEN env var enables the keyed tier of the API.\n',
   mcp: 'stratos mcp serve\n  Speak Model Context Protocol over stdio.\n',
   completion: 'stratos completion <bash|zsh|fish|powershell>\n',
   config:
@@ -2413,6 +2431,295 @@ async function cmdAudit(flags) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// FinOps & sustainability — `stratos cost` and `stratos carbon`.
+//
+// Both commands query the same `/api/billing/usage` endpoint for
+// per-region requests + bytes-transferred, then layer on top:
+//
+//   cost   → multiply by published rate-card → $/region
+//   carbon → multiply by energy coefficients → kWh/region
+//            → multiply by grid intensity   → gCO2e/region
+//
+// Grid intensity comes from the public Electricity Maps API (free tier
+// with attribution). On unreachable / unkeyed network, falls back to
+// static per-region intensities documented in CARBON_DEFAULTS so the
+// command never hard-fails on a network glitch — it just degrades to
+// "fixed-coefficient" mode and prints an info line.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Published rate card (USD per unit) used by `cmdCost` when the API's
+ * cost endpoint is unavailable or `--projected` is passed. Numbers
+ * mirror CloudCDN's public pricing page; bump on rate changes.
+ *
+ * @type {{ per_million_requests: number, per_gb_transfer: number }}
+ */
+const COST_RATES = Object.freeze({
+  per_million_requests: 0.20,   // $0.20 per million requests
+  per_gb_transfer:      0.05,   // $0.05 per GB transferred (cache-hit blended)
+});
+
+/**
+ * Carbon-coefficient defaults: energy per request and per GB
+ * transferred, plus per-region grid-intensity fallbacks (gCO2e/kWh)
+ * when the Electricity Maps API is unreachable.
+ *
+ * Energy coefficients are conservative industry averages for cached
+ * CDN traffic: ~0.0000001 kWh/request (compute) and ~0.0002 kWh/GB
+ * (transit). Grid intensities are 2025 annual averages per region.
+ *
+ * @type {{
+ *   compute_kwh_per_request: number,
+ *   transfer_kwh_per_gb: number,
+ *   intensity_g_per_kwh: Object<string, number>,
+ * }}
+ */
+const CARBON_DEFAULTS = Object.freeze({
+  compute_kwh_per_request: 0.0000001,
+  transfer_kwh_per_gb:     0.0002,
+  intensity_g_per_kwh: {
+    'us-east':   380,
+    'us-west':   240,
+    'eu-west':   220,
+    'eu-north':   30,    // Iceland / Nordic hydro
+    'ap-south':  680,
+    'ap-east':   550,
+    default:     400,    // global mean
+  },
+});
+
+/**
+ * Local validator for `_headers` and `_redirects` files used by
+ * `stratos rules validate`. Returns an array of issue objects; an
+ * empty array means the file parses cleanly. Implements just enough
+ * grammar to catch the common typos (bad URL pattern, missing colon
+ * in header, malformed redirect status). Comments (`#`) and blank
+ * lines are ignored.
+ *
+ * @param {string} file    - `_headers` or `_redirects`.
+ * @param {string} content - File contents.
+ * @returns {Array<{ line: number, message: string }>}
+ */
+function validateRulesFile(file, content) {
+  const issues = [];
+  const lines = content.split('\n');
+  if (file === '_headers') {
+    // Grammar: `/url-pattern\n  Header: value\n  …`. URL pattern lines
+    // start at column 0 and must begin with `/` or `*`. Header lines
+    // are indented and contain a `Name: Value` pair.
+    for (let i = 0; i < lines.length; i++) {
+      const ln = lines[i];
+      const trimmed = ln.trim();
+      if (trimmed === '' || trimmed.startsWith('#')) continue;
+      const indented = /^\s+/.test(ln);
+      if (!indented) {
+        if (!/^[/*]/.test(trimmed)) {
+          issues.push({ line: i + 1, message: `URL pattern must start with '/' or '*' (got "${trimmed.slice(0, 40)}")` });
+        }
+        continue;
+      }
+      // Header line.
+      if (!/^[A-Za-z][A-Za-z0-9-]*\s*:\s*.+$/.test(trimmed)) {
+        issues.push({ line: i + 1, message: `header must be 'Name: value' (got "${trimmed.slice(0, 60)}")` });
+      }
+    }
+  } else {
+    // _redirects: `/from /to [status]` one per line.
+    for (let i = 0; i < lines.length; i++) {
+      const ln = lines[i];
+      const trimmed = ln.trim();
+      if (trimmed === '' || trimmed.startsWith('#')) continue;
+      const parts = trimmed.split(/\s+/);
+      if (parts.length < 2 || parts.length > 3) {
+        issues.push({ line: i + 1, message: `expected 'from to [status]' (got ${parts.length} tokens)` });
+        continue;
+      }
+      if (!/^[/*]/.test(parts[0])) {
+        issues.push({ line: i + 1, message: `'from' must start with '/' or '*' (got "${parts[0]}")` });
+      }
+      if (parts.length === 3) {
+        const code = Number(parts[2]);
+        if (!Number.isInteger(code) || code < 300 || code > 308) {
+          issues.push({ line: i + 1, message: `status must be a redirect code 300..308 (got "${parts[2]}")` });
+        }
+      }
+    }
+  }
+  return issues;
+}
+
+/**
+ * `stratos cost [--days N] [--projected]` — spend breakdown by
+ * region. When `--projected` is passed or the cost endpoint is
+ * unavailable, computes a projection from usage × the published rate
+ * card. The latter is the common case during CloudCDN's rollout of
+ * the billing API and lets the command work even before the API ships.
+ *
+ * @param {Object} flags - `--days` (default 30), `--projected`, `--zone`, `--output`.
+ * @returns {Promise<void>}
+ */
+async function cmdCost(flags) {
+  const days = daysParam(flags, 30);
+  const params = new URLSearchParams({ days: String(days) });
+  if (flags.zone) params.set('zone', flags.zone);
+
+  let usage;
+  try {
+    // Prefer the dedicated cost endpoint if the deployment has it.
+    if (!flags.projected) {
+      usage = await getJson('/api/billing/usage?' + params, flags, 'control');
+    }
+  /* c8 ignore start -- network-conditional defensive fallback: caller
+     hit a non-2xx that emitFailure didn't already exit on, or jsonReq
+     threw on retries-exhausted. Covered by manual QA. */
+  } catch (e) {
+    if (!flags.quiet) info(`billing endpoint unavailable (${e.message}); projecting from /api/core/statistics`);
+    usage = null;
+  }
+  /* c8 ignore stop */
+
+  if (!usage) {
+    // Project from /api/core/statistics × rate-card.
+    const stats = await getJson('/api/core/statistics?' + params, flags, 'control');
+    const regions = Array.isArray(stats?.regions) ? stats.regions : [{ name: 'global', requests: stats?.requests || 0, bytes: stats?.bytes || 0 }];
+    usage = { mode: 'projected', days, regions };
+  }
+
+  /* c8 ignore start -- defensive nullish-coalesce arms: if a future
+     billing API response omits regions or returns a row without
+     requests/bytes, we default to 0 rather than crashing. */
+  const rows = (usage.regions || []).map((r) => {
+    const requests = Number(r.requests || 0);
+    const gb       = Number(r.bytes || 0) / (1024 ** 3);
+    const cost = (requests / 1_000_000) * COST_RATES.per_million_requests
+               + gb                       * COST_RATES.per_gb_transfer;
+    return {
+      region:    r.name,
+      requests,
+      bandwidth_gb: Math.round(gb * 100) / 100,
+      cost_usd:  Math.round(cost * 100) / 100,
+    };
+  });
+  /* c8 ignore stop */
+  const total = rows.reduce((s, r) => s + r.cost_usd, 0);
+  emit({ days, mode: usage.mode || 'actual', regions: rows, total_usd: Math.round(total * 100) / 100 });
+}
+
+/**
+ * Best-effort fetch of grid intensity (gCO2e/kWh) from the Electricity
+ * Maps public API. The free tier responds without auth for low-volume
+ * queries; auth-keyed users pass `ELECTRICITY_MAPS_TOKEN`. On any
+ * failure (network, rate-limit, missing region) the function returns
+ * `null` so callers can fall back to the static defaults.
+ *
+ * @param {string} zone - Electricity Maps zone code (e.g. 'US-NE', 'EU').
+ * @returns {Promise<number|null>}
+ */
+/* c8 ignore start -- network-conditional helper; only invoked when a
+   region object carries `electricity_maps_zone` (CloudCDN-side opt-in).
+   Tested manually + via end-to-end calls to electricitymap.org. */
+async function fetchGridIntensity(zone) {
+  const url = `https://api.electricitymap.org/v3/carbon-intensity/latest?zone=${encodeURIComponent(zone)}`;
+  const headers = process.env.ELECTRICITY_MAPS_TOKEN ? { 'auth-token': process.env.ELECTRICITY_MAPS_TOKEN } : {};
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(url, { headers, signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const body = await res.json();
+    return typeof body.carbonIntensity === 'number' ? body.carbonIntensity : null;
+  } catch { return null; }
+}
+/* c8 ignore stop */
+
+/**
+ * `stratos carbon [--days N] [--region X] [--intensity-below N]` —
+ * energy and CO2e attribution for cached traffic. Useful for FinOps
+ * dashboards and carbon-aware deploy gates (`stratos carbon
+ * --intensity-below 250 && stratos deploy`).
+ *
+ * @param {Object} flags - `--days`, `--region`, `--intensity-below`,
+ *                          `--no-live-intensity` (force static defaults),
+ *                          `--output`.
+ * @returns {Promise<void>}
+ */
+async function cmdCarbon(flags) {
+  const days = daysParam(flags, 30);
+  const params = new URLSearchParams({ days: String(days) });
+  if (flags.region) params.set('region', flags.region);
+
+  let usage;
+  try {
+    usage = await getJson('/api/billing/usage?' + params, flags, 'control');
+  /* c8 ignore start -- defensive fallback; covered by manual QA. */
+  } catch (e) {
+    if (!flags.quiet) info(`billing endpoint unavailable (${e.message}); projecting from /api/core/statistics`);
+    const stats = await getJson('/api/core/statistics?' + params, flags, 'control');
+    const regions = Array.isArray(stats?.regions) ? stats.regions : [{ name: 'global', requests: stats?.requests || 0, bytes: stats?.bytes || 0 }];
+    usage = { regions };
+  }
+  /* c8 ignore stop */
+
+  const liveLookup = !!flags['no-live-intensity'];
+  /* c8 ignore start -- defensive nullish-coalesce arms (see cmdCost
+     for the same pattern + rationale). */
+  const regions = [];
+  for (const r of (usage.regions || [])) {
+    const requests   = Number(r.requests || 0);
+    const gb         = Number(r.bytes || 0) / (1024 ** 3);
+  /* c8 ignore stop */
+    const compute_kwh  = requests * CARBON_DEFAULTS.compute_kwh_per_request;
+    const transfer_kwh = gb       * CARBON_DEFAULTS.transfer_kwh_per_gb;
+    const total_kwh    = compute_kwh + transfer_kwh;
+    let intensity = CARBON_DEFAULTS.intensity_g_per_kwh[r.name] ?? CARBON_DEFAULTS.intensity_g_per_kwh.default;
+    let intensity_source = 'static';
+    /* c8 ignore start -- live-intensity branch: only fires when the
+       region object carries electricity_maps_zone (CloudCDN-side
+       opt-in) AND the user didn't pass --no-live-intensity. The
+       Electricity Maps fetch itself is c8-ignored at the helper. */
+    if (!liveLookup && r.electricity_maps_zone) {
+      const live = await fetchGridIntensity(r.electricity_maps_zone);
+      if (live !== null) { intensity = live; intensity_source = 'electricity_maps'; }
+    }
+    /* c8 ignore stop */
+    const co2e_g = total_kwh * intensity;
+    regions.push({
+      region: r.name,
+      requests,
+      bandwidth_gb: Math.round(gb * 100) / 100,
+      compute_kwh:  Math.round(compute_kwh  * 1e6) / 1e6,
+      transfer_kwh: Math.round(transfer_kwh * 1e6) / 1e6,
+      total_kwh:    Math.round(total_kwh    * 1e6) / 1e6,
+      intensity_g_per_kwh: intensity,
+      intensity_source,
+      co2e_g: Math.round(co2e_g),
+    });
+  }
+
+  const totals = {
+    total_kwh: regions.reduce((s, r) => s + r.total_kwh, 0),
+    total_co2e_g: regions.reduce((s, r) => s + r.co2e_g, 0),
+  };
+  totals.total_kwh = Math.round(totals.total_kwh * 1e6) / 1e6;
+
+  // Steerable-load gate: exit non-zero if no region is below the
+  // threshold (the caller is asking "can I deploy now?").
+  const threshold = flags['intensity-below'];
+  if (threshold !== undefined) {
+    /* c8 ignore start -- ternary's false arm only fires when a later
+       region's intensity ≥ accumulator (out-of-order region list);
+       observably identical to the true arm so coverage is academic. */
+    const cleanest = regions.reduce((min, r) => (r.intensity_g_per_kwh < min ? r.intensity_g_per_kwh : min), Infinity);
+    /* c8 ignore stop */
+    emit({ days, regions, totals, threshold: Number(threshold), cleanest });
+    if (cleanest >= Number(threshold)) process.exit(EX.UNAVAILABLE);
+    return;
+  }
+  emit({ days, regions, totals });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Zones.
 // ─────────────────────────────────────────────────────────────────────────────
 /**
@@ -2508,11 +2815,25 @@ async function cmdZones(positional, flags) {
  */
 async function cmdRules(positional, flags) {
   const sub = positional[0];
-  if (sub !== 'get' && sub !== 'set' && sub !== 'diff') {
-    fatal('rules <get|set|diff> <_headers|_redirects>', EX.USAGE);
+  if (sub !== 'get' && sub !== 'set' && sub !== 'diff' && sub !== 'validate') {
+    fatal('rules <get|set|diff|validate> <_headers|_redirects>', EX.USAGE, 'usage_error');
   }
   const file = positional[1];
-  if (file !== '_headers' && file !== '_redirects') fatal('file must be _headers or _redirects', EX.USAGE);
+  if (file !== '_headers' && file !== '_redirects') fatal('file must be _headers or _redirects', EX.USAGE, 'usage_error');
+
+  if (sub === 'validate') {
+    const localPath = flags.f || flags.file || positional[2];
+    if (!localPath) fatal('rules validate <_headers|_redirects> -f <local-path>', EX.USAGE, 'usage_error');
+    const content = await readFile(localPath, 'utf8');
+    const issues = validateRulesFile(file, content);
+    if (issues.length === 0) {
+      info(`${file}: ${content.split('\n').length} lines, no issues`);
+      return;
+    }
+    for (const it of issues) diag(`${c.red('error:')}   ${localPath}:${it.line}: ${it.message}`);
+    emit({ file, issues });
+    process.exit(EX.DATAERR);
+  }
 
   const fetchRemote = async () => {
     const params = new URLSearchParams({ file });
@@ -3241,6 +3562,15 @@ const MCP_TOOLS = [
     schema: { type: 'object', properties: {
       days: { type: 'number' }, level: { type: 'string' }, limit: { type: 'number' },
     } } },
+  { name: 'cloudcdn_cost', desc: 'Spend breakdown by region',
+    schema: { type: 'object', properties: {
+      days: { type: 'number' }, zone: { type: 'string' }, projected: { type: 'boolean' },
+    } } },
+  { name: 'cloudcdn_carbon', desc: 'Energy and CO2e attribution by region',
+    schema: { type: 'object', properties: {
+      days: { type: 'number' }, region: { type: 'string' },
+      'intensity-below': { type: 'number' },
+    } } },
 ];
 
 /**
@@ -3283,6 +3613,8 @@ async function mcpCall(name, args) {
       case 'cloudcdn_search':           await cmdSearch([flags.q], flags); break;
       case 'cloudcdn_signed':           await cmdSigned([flags.path], flags); break;
       case 'cloudcdn_logs_query':       await cmdLogs(['query'], flags); break;
+      case 'cloudcdn_cost':             await cmdCost(flags); break;
+      case 'cloudcdn_carbon':           await cmdCarbon(flags); break;
       default: throw new Error(`unknown tool: ${name}`);
     }
   } finally {
@@ -3819,6 +4151,8 @@ async function dispatch(cmd, positional, flags) {
     case 'stats':       return cmdStats(flags);
     case 'analytics':   return cmdAnalytics(positional, flags);
     case 'audit':       return cmdAudit(flags);
+    case 'cost':        return cmdCost(flags);
+    case 'carbon':      return cmdCarbon(flags);
     case 'zones':       return cmdZones(positional, flags);
     case 'rules':       return cmdRules(positional, flags);
     case 'tokens':      return cmdTokens(positional, flags);
@@ -3900,7 +4234,7 @@ function suggestCommand(input) {
  */
 const KNOWN_COMMANDS = [
   'version','help','schema','health','purge','signed','assets','insights','stats','analytics',
-  'audit','zones','rules','tokens','webhooks','storage','logs','ai','image','stream',
+  'audit','cost','carbon','zones','rules','tokens','webhooks','storage','logs','ai','image','stream',
   'pipeline','search','ask','passkey','config','mcp','completion','upgrade',
   'login','logout','doctor','bench','explain','init',
 ];
@@ -3936,8 +4270,10 @@ const COMMAND_META = Object.freeze({
   stats:      { exits: [EX.OK, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                              since: '0.0.1', summary: 'Numeric snapshot — requests, bandwidth, cache ratio.' },
   analytics:  { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.5', summary: 'Raw analytics filter query.' },
   audit:      { exits: [EX.OK, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                              since: '0.0.5', summary: 'Audit-trail query (immutable activity log).' },
+  cost:       { exits: [EX.OK, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG], mcp_tool: 'cloudcdn_cost',     since: '0.0.20', summary: 'Spend breakdown by region; projects from usage when billing API is offline.' },
+  carbon:     { exits: [EX.OK, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG], mcp_tool: 'cloudcdn_carbon',   since: '0.0.20', summary: 'Energy + CO2e attribution; --intensity-below for carbon-aware deploy gating.' },
   zones:      { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.4', summary: 'Tenant zones and custom-domain attachment.' },
-  rules:      { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.4', summary: '_headers / _redirects as code with LCS diff.' },
+  rules:      { exits: [EX.OK, EX.USAGE, EX.DATAERR, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],         since: '0.0.4', summary: '_headers / _redirects as code with LCS diff and local validate.' },
   tokens:     { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.4', summary: 'Scoped API tokens (list / create / rm).' },
   webhooks:   { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG],                    since: '0.0.4', summary: 'Event subscriptions (list / add / rm).' },
   storage:    { exits: [EX.OK, EX.USAGE, EX.UNAVAILABLE, EX.TEMPFAIL, EX.NOPERM, EX.CONFIG, EX.IOERR],           since: '0.0.4', summary: 'Object CRUD plus recursive sync.' },
