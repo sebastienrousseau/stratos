@@ -18,7 +18,7 @@
  */
 
 import { readFile, writeFile, mkdir, stat, readdir, access } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
+import { createReadStream, realpathSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { resolve as resolvePath, join, dirname, basename, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,7 +33,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *
  * @type {string}
  */
-const VERSION = '0.0.20';
+const VERSION = '0.0.21';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.
@@ -1213,9 +1213,10 @@ ${c.bold('Catalog & insights')}
 ${c.bold('Zones & rules')}
   zones list|create|show|rm
   zones domains add <id> <host>
-  rules get <_headers|_redirects>
-  rules set <_headers|_redirects> -f <file>
-  rules diff <_headers|_redirects> -f <file>
+  rules get      <_headers|_redirects>
+  rules set      <_headers|_redirects> -f <file>
+  rules diff     <_headers|_redirects> -f <file>
+  rules validate <_headers|_redirects> -f <file>   Offline structural check (no API call).
 
 ${c.bold('Tokens & webhooks')}
   tokens list|create|rm
@@ -1236,6 +1237,16 @@ ${c.bold('Pipeline & discovery')}
   ask <message>               CloudCDN AI concierge.
   logs tail [--level L]       SSE-stream live logs.
   logs query [--days N]       Historical log query.
+
+${c.bold('Cost & sustainability')}
+  cost   [--days N] [--zone Z] [--projected]
+                              Spend breakdown by region; projects from
+                              usage when the billing API is offline.
+  carbon [--days N] [--region X] [--intensity-below N]
+                              Energy + CO2e attribution. --intensity-below
+                              is the carbon-aware deploy gate (exits 0 if
+                              any region's grid is under the threshold,
+                              69 otherwise).
 
 ${c.bold('Global options')}
   --output <fmt>              json | ndjson | yaml | csv | table  (default: auto).
@@ -4422,8 +4433,32 @@ export {
 // contract preserved.
 /* v8 ignore start */
 const isBunRuntime = typeof Bun !== 'undefined';
-const isNodeEntrypoint =
-  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+/**
+ * True iff this module is the Node entrypoint (i.e. `node stratos.mjs …`,
+ * not `import('stratos.mjs')`). Canonicalizes `argv[1]` through realpath
+ * to survive paths that traverse a symlinked directory (macOS /tmp).
+ * @type {boolean}
+ */
+const isNodeEntrypoint = (() => {
+  if (!process.argv[1]) return false;
+  const here = fileURLToPath(import.meta.url);
+  // Fast path: raw strings already match (common when the install path
+  // is canonical end-to-end, which is true for every supported install
+  // method: npm bin shim, install.sh, brew, docker, scoop, winget).
+  if (here === process.argv[1]) return true;
+  // Slow path: argv[1] reached us through a symlinked directory (e.g.
+  // /tmp → /private/tmp on macOS, or any user-created symlink in the
+  // path). The ESM loader canonicalizes import.meta.url through
+  // realpath, so canonicalize argv[1] the same way before comparing.
+  // Without this, `node /tmp/.../stratos.mjs version` silently exits 0
+  // on macOS — same class of bug as the v0.0.18 Bun $bunfs path
+  // mismatch (CHANGELOG v0.0.19).
+  try {
+    return here === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+})();
 if (isBunRuntime || isNodeEntrypoint) {
   main().catch((e) => {
     const code = (e && e.exitCode) ? e.exitCode : EX.SOFTWARE;
