@@ -42,7 +42,7 @@ jobs:
       name: npm
       url: https://www.npmjs.com/package/@cloudcdn/stratos
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -206,7 +206,7 @@ jobs:
           - { runner: macos-latest,   target: darwin-arm64, out: stratos-darwin-arm64, smoke: true  }
           - { runner: windows-latest, target: win-x64,      out: stratos-win-x64.exe,  smoke: true  }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with: { node-version: '24' }
 
@@ -274,7 +274,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -330,7 +330,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with: { node-version: '24' }
 
@@ -658,7 +658,7 @@ jobs:
     timeout-minutes: 5
     if: ${{ !github.event.repository.fork }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Skip if CDN credentials are unset
         id: gate
