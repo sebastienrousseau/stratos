@@ -43,7 +43,7 @@
     "cloudflare-pages"
   ],
   "author": "Sebastien Rousseau <sebastian.rousseau@gmail.com> (https://sebastienrousseau.com)",
-  "license": "MIT",
+  "license": "Apache-2.0 OR MIT",
   "homepage": "https://github.com/sebastienrousseau/stratos#readme",
   "repository": {
     "type": "git",
