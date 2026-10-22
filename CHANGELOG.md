@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.22] — 2026-10-22
+
+### Changed — published as `@sebastienrousseau/stratos`
+
+- **New npm name.** Stratos is published as `@sebastienrousseau/stratos`, alongside the author's other npm packages. Install with `npm install -g @sebastienrousseau/stratos`; the `stratos` command, the binaries, Homebrew, Scoop, winget, Docker and the installer scripts are unchanged. `@cloudcdn/stratos` stops at 0.0.21 and is deprecated in favour of the new name.
+- **0.0.22 is published to npm by hand.** npm can only trust a release workflow for a package that already exists, so this first version under the new name has no npm provenance. Its GitHub release artefacts carry the usual SLSA attestation and Cosign signatures, and npm releases from 0.0.23 on are published by the workflow with provenance again. The workflow now skips the npm publish for a version npm already has.
+- **GitHub Action.** The npm fallback installs `@sebastienrousseau/stratos`, or `@cloudcdn/stratos` when the pinned version is 0.0.21 or earlier. The action's default version had been left at 0.0.6; it now follows the release, and `scripts/check-versions.mjs` checks it.
+- **Release title** is `@sebastienrousseau/stratos <version>` instead of `Stratos v<version>`.
+- **`EX_NOPERM` hint** no longer sends you to the npm package page to check an API key's scope; it points at the CloudCDN dashboard.
+
+### Security
+
+- **brace-expansion** (dev-only, through c8) is constrained to `>=5.0.12 <6.0.0`, clearing GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7 and GHSA-6j4f-fj2g-mc7p. `npm audit` reports 0 vulnerabilities.
+
 ## [0.0.21] — 2026-06-16
 
 ### Fixed — root help and macOS symlink-path entry guard (post-v0.0.20 verification)
