@@ -51,11 +51,12 @@ const checks = [];
 // ─── Version-string sources ───────────────────────────────────────────────
 const stratosVersion       = await extract('stratos.mjs',        /const VERSION = '([^']+)'/);
 const packageVersion       = await extract('package.json',       /"version":\s*"([^"]+)"/);
-const lockVersion          = await extract('package-lock.json',  /"name":\s*"@cloudcdn\/stratos"[\s\S]*?"version":\s*"([^"]+)"/);
+const lockVersion          = await extract('package-lock.json',  /"name":\s*"@sebastienrousseau\/stratos"[\s\S]*?"version":\s*"([^"]+)"/);
 const installShVersion     = await extract('install/install.sh', /VERSION="([^"]+)"/);
 const installPsVersion     = await extract('install/install.ps1', /\$Version\s*=\s*'([^']+)'/);
 const routerTestRegex      = await extract('test/router.test.mjs', /v0\\?\.0\\?\.(\d+)/);
 const changelogTopVersion  = await extract('CHANGELOG.md',       /^## \[([\d.]+)\]/m);
+const actionVersion        = await extract('actions/stratos/action.yml', /default: '(\d+\.\d+\.\d+)'/);
 
 checks.push(['stratos.mjs VERSION',       stratosVersion]);
 checks.push(['package.json version',      packageVersion]);
@@ -64,6 +65,7 @@ checks.push(['install.sh VERSION',        installShVersion]);
 checks.push(['install.ps1 $Version',      installPsVersion]);
 checks.push(['router.test.mjs version',   `0.0.${routerTestRegex}`]);
 checks.push(['CHANGELOG.md top entry',    changelogTopVersion]);
+checks.push(['action.yml default version', actionVersion]);
 
 const canonical = stratosVersion;
 for (const [name, value] of checks) {

@@ -15,7 +15,7 @@
 <p align="center">
   <a href="https://github.com/sebastienrousseau/stratos/actions"><img src="https://img.shields.io/github/actions/workflow/status/sebastienrousseau/stratos/ci.yml?style=for-the-badge&logo=github" alt="Build" /></a>
   <a href="https://github.com/sebastienrousseau/stratos/releases"><img src="https://img.shields.io/github/v/release/sebastienrousseau/stratos?style=for-the-badge&color=fc8d62" alt="Release" /></a>
-  <a href="https://www.npmjs.com/package/@cloudcdn/stratos"><img src="https://img.shields.io/npm/v/@cloudcdn/stratos.svg?style=for-the-badge&color=cb3837&logo=npm" alt="npm" /></a>
+  <a href="https://www.npmjs.com/package/@sebastienrousseau/stratos"><img src="https://img.shields.io/npm/v/@sebastienrousseau%2Fstratos.svg?style=for-the-badge&color=cb3837&logo=npm" alt="npm" /></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge" alt="MIT" /></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%E2%89%A520-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 20+" /></a>
   <a href="#tests--coverage"><img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=for-the-badge" alt="Coverage 100%" /></a>
@@ -68,7 +68,7 @@ Stratos ships as one ES module (`stratos.mjs`, ~4,000 lines, **zero runtime depe
 
 | Channel | Command |
 |---|---|
-| **npm** *(recommended)* | `npm install -g @cloudcdn/stratos` |
+| **npm** *(recommended)* | `npm install -g @sebastienrousseau/stratos` |
 | **Homebrew** *(macOS / Linux, no Node required)* | `brew tap sebastienrousseau/tap && brew install sebastienrousseau/tap/stratos` |
 | **winget** *(Windows)* | `winget install CloudCDN.Stratos` |
 | **Scoop** *(Windows)* | `scoop bucket add sebastienrousseau https://github.com/sebastienrousseau/scoop-bucket && scoop install stratos` |
@@ -83,9 +83,9 @@ Override the installer prefix:
 curl -sL https://cloudcdn.pro/dist/stratos/install.sh | STRATOS_PREFIX=$HOME/bin bash
 ```
 
-Both shell installers verify a pinned SHA-256 of the script *before* writing it to disk. npm releases are published with **Sigstore-backed provenance** — verify with `npm audit signatures`. Every release also ships a SLSA L3 build provenance attestation (`stratos-v<version>.intoto.jsonl`) and a Cosign keyless signature for each canonical artefact — see [Integrity & supply chain](#integrity--supply-chain).
+Both shell installers verify a pinned SHA-256 of the script *before* writing it to disk. npm releases are published with **Sigstore-backed provenance** — verify with `npm audit signatures`. The one exception is 0.0.22, the first version under the `@sebastienrousseau/stratos` name, which was published by hand because npm can only trust a release workflow for a package that already exists; its GitHub release artefacts carry the usual SLSA attestation and Cosign signatures. Every release also ships a SLSA L3 build provenance attestation (`stratos-v<version>.intoto.jsonl`) and a Cosign keyless signature for each canonical artefact — see [Integrity & supply chain](#integrity--supply-chain).
 
-> **Module format:** `@cloudcdn/stratos` is **ESM only** (`"type": "module"`). Modern Node ≥ 20 consumes it directly with `import`. CommonJS callers use dynamic import: `const stratos = await import('@cloudcdn/stratos')`.
+> **Module format:** `@sebastienrousseau/stratos` is **ESM only** (`"type": "module"`). Modern Node ≥ 20 consumes it directly with `import`. CommonJS callers use dynamic import: `const stratos = await import('@sebastienrousseau/stratos')`.
 
 ---
 
@@ -154,7 +154,7 @@ Three artefacts ship from this repo. The CLI is the core; the others wrap it for
 
 | Artefact | What it is | Use case |
 |---|---|---|
-| **`@cloudcdn/stratos`** | The CLI and library (this README) | Local terminal, CI, scripts, in-process integration |
+| **`@sebastienrousseau/stratos`** | The CLI and library (this README) | Local terminal, CI, scripts, in-process integration |
 | **`sebastienrousseau/stratos/actions/stratos@v<x>`** | Composite GitHub Action | Drop-in CI step; auto-detects `GITHUB_ACTIONS`, emits `::error::` workflow commands on non-zero exit. See [`actions/stratos/README.md`](actions/stratos/README.md). |
 | **`stratos mcp serve`** | Model Context Protocol stdio server (bundled) | Claude Code, Cursor, Continue.dev, Zed assistant, any MCP host — see [MCP server](#mcp-server) |
 | **`ghcr.io/sebastienrousseau/stratos`** | Multi-arch Docker image (`linux/amd64`, `linux/arm64`) | Containerised CI runners; `docker run --rm ghcr.io/sebastienrousseau/stratos:latest version` |
@@ -347,13 +347,13 @@ Run `stratos <command> --help` for per-command detail.
 
 Stratos is *also* a Node ESM library. Every command is an exported function you can drive in-process from your own application or test suite.
 
-> **ESM only.** Use `import` from any Node ≥ 20 ES module. CommonJS callers use `await import('@cloudcdn/stratos')`.
+> **ESM only.** Use `import` from any Node ≥ 20 ES module. CommonJS callers use `await import('@sebastienrousseau/stratos')`.
 
 #### Minting a signed URL from your application
 
 ```javascript
 // signed-url-server.mjs — mint short-lived signed URLs from an Express handler.
-import { cmdSigned } from '@cloudcdn/stratos';
+import { cmdSigned } from '@sebastienrousseau/stratos';
 import express from 'express';
 
 const app = express();
@@ -384,7 +384,7 @@ app.listen(3000);
 
 ```javascript
 // custom-tool.mjs — reuse Stratos's flag parser for consistency with the CLI.
-import { parseFlags } from '@cloudcdn/stratos';
+import { parseFlags } from '@sebastienrousseau/stratos';
 
 const { positional, flags } = parseFlags(process.argv.slice(2));
 // e.g. node custom-tool.mjs deploy --env=prod --tag a --tag b
@@ -397,7 +397,7 @@ console.log({ positional, flags });
 
 ```javascript
 // integration-test.mjs — invoke any command in-process.
-import { main, VERSION, EX } from '@cloudcdn/stratos';
+import { main, VERSION, EX } from '@sebastienrousseau/stratos';
 
 console.log(`Driving stratos v${VERSION}`);          // → Driving stratos v0.0.17
 console.log(`Exit codes: ${JSON.stringify(EX)}`);    // → { OK: 0, USAGE: 64, ... }

@@ -23,7 +23,7 @@ The trust boundaries are:
 | The Node runtime | Honest execution of `stratos.mjs` against the supplied env vars / flags / profile | Network responses (treated as untrusted) |
 | The OS keychain | Read access to entries Stratos wrote | The keychain backend itself (we don't manage it) |
 | `https://cloudcdn.pro` (or `CLOUDCDN_URL`) | The CloudCDN API as a service | The HTTP response body (treated as untrusted) |
-| The published artefacts | npm `@cloudcdn/stratos`, GH-release binaries, the published installer scripts | Anything downloaded outside the verified channels |
+| The published artefacts | npm `@sebastienrousseau/stratos` (`@cloudcdn/stratos` through 0.0.21), GH-release binaries, the published installer scripts | Anything downloaded outside the verified channels |
 
 ## Adversaries we defend against
 
