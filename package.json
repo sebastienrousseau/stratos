@@ -1,6 +1,6 @@
 {
-  "name": "@cloudcdn/stratos",
-  "version": "0.0.21",
+  "name": "@sebastienrousseau/stratos",
+  "version": "0.0.22",
   "description": "Official command-line client for CloudCDN — full control plane in a single zero-dep Node script.",
   "type": "module",
   "main": "stratos.mjs",
@@ -60,6 +60,6 @@
     "c8": "12.0.0"
   },
   "overrides": {
-    "brace-expansion@>=3.0.0 <5.0.9": ">=5.0.9 <6.0.0"
+    "brace-expansion@>=3.0.0 <5.0.12": ">=5.0.12 <6.0.0"
   }
 }
