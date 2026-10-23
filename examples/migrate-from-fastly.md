@@ -81,7 +81,7 @@ subcommands — Stratos uses noun-first too, so the shape will feel familiar.
   env:
     CLOUDCDN_ACCOUNT_KEY: ${{ secrets.CLOUDCDN_ACCOUNT_KEY }}
   run: |
-    npm i -g @cloudcdn/stratos
+    npm i -g @sebastienrousseau/stratos
     stratos purge --tag "deploy-${GITHUB_SHA::7}"
 ```
 

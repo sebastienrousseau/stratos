@@ -6,7 +6,7 @@
 //
 // Stratos has zero runtime dependencies, so the active assertion is
 // "no known affected vulnerabilities in this version of
-// @cloudcdn/stratos". When a CVE is filed against us (or against a
+// @sebastienrousseau/stratos". When a CVE is filed against us (or against a
 // dev-only dep that's somehow surfaced), this script will be the place
 // to add per-CVE entries.
 //
@@ -38,11 +38,11 @@ const doc = {
       version,
     }],
     component: {
-      'bom-ref': `pkg:npm/@cloudcdn/stratos@${version}`,
+      'bom-ref': `pkg:npm/@sebastienrousseau/stratos@${version}`,
       type: 'application',
-      name: '@cloudcdn/stratos',
+      name: '@sebastienrousseau/stratos',
       version,
-      purl: `pkg:npm/@cloudcdn/stratos@${version}`,
+      purl: `pkg:npm/@sebastienrousseau/stratos@${version}`,
       description: 'Official command-line client for CloudCDN.',
       licenses: [{ license: { id: 'MIT' } }],
     },

@@ -378,7 +378,7 @@ test('make-vex: produces valid CycloneDX 1.6 VEX doc', async () => {
   assert.equal(doc.bomFormat, 'CycloneDX');
   assert.equal(doc.specVersion, '1.6');
   assert.match(doc.serialNumber, /^urn:uuid:/);
-  assert.equal(doc.metadata.component.purl, 'pkg:npm/@cloudcdn/stratos@0.0.5');
+  assert.equal(doc.metadata.component.purl, 'pkg:npm/@sebastienrousseau/stratos@0.0.5');
   assert.ok(Array.isArray(doc.vulnerabilities));
 });
 

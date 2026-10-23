@@ -88,7 +88,7 @@ expects (AWS S3 PUT, Cloudflare R2 via wrangler, Backblaze B2, etc.).
 The final `smoke-verify` job is the regression net. It runs after
 every release and installs Stratos from every public channel:
 
-- npm: `npm install -g @cloudcdn/stratos@<version>`
+- npm: `npm install -g @sebastienrousseau/stratos@<version>`
 - Homebrew: `brew tap sebastienrousseau/tap && brew install sebastienrousseau/tap/stratos`
 - Docker: `docker pull ghcr.io/sebastienrousseau/stratos:<version>`
 - Linux x64 binary: download + chmod + run

@@ -41,7 +41,7 @@ fine — they ship alongside the source, not in place of it.
 
 We will not add a runtime plugin system that reads from `~/.stratos/plugins/`
 or anywhere else. The extensibility story is the exported programmatic API
-(`import { cmdHealth } from '@cloudcdn/stratos'`) — compose Stratos from
+(`import { cmdHealth } from '@sebastienrousseau/stratos'`) — compose Stratos from
 your own Node script if you need something Stratos doesn't ship.
 
 ## Feature breadth

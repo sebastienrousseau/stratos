@@ -9,7 +9,7 @@
 #
 # Auth: npm Trusted Publishers (OIDC). No NPM_TOKEN secret is consumed.
 # Setup is on the npm side at
-#   https://www.npmjs.com/package/@cloudcdn/stratos/access
+#   https://www.npmjs.com/package/@sebastienrousseau/stratos/access
 # Trusted Publisher → GitHub Actions → owner sebastienrousseau,
 # repo stratos, workflow .github/workflows/release.yml, environment npm.
 
@@ -40,7 +40,7 @@ jobs:
     timeout-minutes: 30
     environment:
       name: npm
-      url: https://www.npmjs.com/package/@cloudcdn/stratos
+      url: https://www.npmjs.com/package/@sebastienrousseau/stratos
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -91,7 +91,7 @@ jobs:
       - name: Generate CycloneDX VEX
         # A standalone VEX (Vulnerability Exploitability eXchange)
         # statement asserting "no known affected vulnerabilities" for
-        # this build of @cloudcdn/stratos. Re-issued every release.
+        # this build of @sebastienrousseau/stratos. Re-issued every release.
         run: node scripts/make-vex.mjs "${{ steps.notes.outputs.version }}" > dist/vex.cyclonedx.json
 
       - name: Generate Homebrew formula
@@ -126,8 +126,20 @@ jobs:
             dist/sbom.cyclonedx.json
             dist/vex.cyclonedx.json
 
+      # npm attaches a trusted publisher only to a package that already
+      # exists, so the first version under a new name is published by hand
+      # before its tag is pushed. Skip npm for a version it already has;
+      # every other artefact is still built, signed and attached.
       - name: Publish to npm (OIDC + provenance)
-        run: npm publish --provenance --access public
+        run: |
+          set -euo pipefail
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          if npm view "${name}@${version}" version >/dev/null 2>&1; then
+            echo "::notice::${name}@${version} is already on npm; skipping publish"
+          else
+            npm publish --provenance --access public
+          fi
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -157,7 +169,7 @@ jobs:
       - name: Attach release artefacts + populate body
         uses: softprops/action-gh-release@v3
         with:
-          name: Stratos v${{ steps.notes.outputs.version }}
+          name: '@sebastienrousseau/stratos ${{ steps.notes.outputs.version }}'
           body_path: dist/release-notes.md
           files: |
             stratos.mjs
@@ -748,9 +760,9 @@ jobs:
               # a path on Ubuntu runners that didn't actually contain the
               # symlink (the v0.0.11 smoke bug). `node $(npm root -g)/.../stratos.mjs`
               # is bulletproof: it points at the file npm just wrote to disk.
-              retry 5 npm install -g "@cloudcdn/stratos@${VERSION}"
+              retry 5 npm install -g "@sebastienrousseau/stratos@${VERSION}"
               NPM_ROOT="$(npm root -g)"
-              got="$(node "${NPM_ROOT}/@cloudcdn/stratos/stratos.mjs" version)"
+              got="$(node "${NPM_ROOT}/@sebastienrousseau/stratos/stratos.mjs" version)"
               ;;
             binary-linux-x64)
               curl -fsSL -o stratos \

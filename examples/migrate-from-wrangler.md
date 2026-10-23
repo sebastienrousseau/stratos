@@ -84,7 +84,7 @@ Wire either into `~/.claude.json`. Stratos exposes 10 CloudCDN-shaped tools
   env:
     CLOUDCDN_ACCOUNT_KEY: ${{ secrets.CLOUDCDN_ACCOUNT_KEY }}
   run: |
-    npm i -g @cloudcdn/stratos
+    npm i -g @sebastienrousseau/stratos
     stratos purge --tag "build-${GITHUB_SHA::7}"
 ```
 

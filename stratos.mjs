@@ -33,7 +33,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *
  * @type {string}
  */
-const VERSION = '0.0.21';
+const VERSION = '0.0.22';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sysexits — sysexits.h conventions, so CI / make / sh can branch on cause.
@@ -2040,7 +2040,7 @@ const EXPLANATIONS = {
   '75': { name: 'EX_TEMPFAIL',    cause: 'A transient failure exhausted retries — typically a 5xx, 429, or network error.',
           fix: ['Re-run after a backoff; the CDN may be under load.', 'Raise `--retries` / `CLOUDCDN_RETRIES` for noisier networks (default 3).', 'Raise `--timeout` / `CLOUDCDN_TIMEOUT` for slow links (default 15000 ms).'] },
   '77': { name: 'EX_NOPERM',      cause: 'Permission denied — the API key is wrong, expired, or lacks the required scope.',
-          fix: ['Run `stratos login status` to confirm the resolved key (masked).', 'Verify the key has the required scope on https://www.npmjs.com/package/@cloudcdn/stratos or your CloudCDN dashboard.', 'For control-plane ops, `CLOUDCDN_ACCOUNT_KEY` must be set.'] },
+          fix: ['Run `stratos login status` to confirm the resolved key (masked).', 'Verify the key has the required scope in your CloudCDN dashboard.', 'For control-plane ops, `CLOUDCDN_ACCOUNT_KEY` must be set.'] },
   '78': { name: 'EX_CONFIG',      cause: 'A required configuration value is missing or unreadable.',
           fix: ['Run `stratos doctor` to surface the specific check that failed.', 'For `stratos signed`, `SIGNED_URL_SECRET` or `--secret` is required.', 'For control-plane commands, `CLOUDCDN_ACCOUNT_KEY` is required.'] },
   '130':{ name: 'SIGINT',         cause: 'You interrupted the command (Ctrl-C). This is normal for `stratos logs tail`.',

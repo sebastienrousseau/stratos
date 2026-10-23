@@ -5,7 +5,7 @@
 #
 # Usage:
 #
-#   - uses: sebastienrousseau/stratos/actions/stratos@v0.0.6
+#   - uses: sebastienrousseau/stratos/actions/stratos@v0.0.22
 #     with:
 #       command: purge --tag build-${{ github.sha }}
 #     env:
@@ -18,7 +18,8 @@
 #   * macOS arm64      - downloads the prebuilt single binary
 #   * macOS x64        - downloads the prebuilt single binary
 #   * Windows x64      - downloads the prebuilt single binary
-#   * (anywhere else)  - falls back to `npm install -g @cloudcdn/stratos`
+#   * (anywhere else)  - falls back to `npm install -g @sebastienrousseau/stratos`
+#                         (`@cloudcdn/stratos` for 0.0.21 and earlier)
 #
 # By default it installs the version pinned in this repository at the
 # ref the action is consumed from. Override with `with: version: 0.0.5`.
@@ -38,7 +39,7 @@ inputs:
   version:
     description: 'Stratos version to install. Defaults to the version pinned in the action.yml.'
     required: false
-    default: '0.0.6'
+    default: '0.0.22'
   output:
     description: 'Output format hint forwarded as --output. One of json|yaml|csv|table.'
     required: false
@@ -89,8 +90,18 @@ runs:
     - name: Install via npm fallback
       if: steps.host.outputs.asset == ''
       shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
       run: |
-        npm install -g "@cloudcdn/stratos@${{ inputs.version }}"
+        set -e
+        # 0.0.21 and earlier were published as @cloudcdn/stratos.
+        PATCH="${VERSION##*.}"
+        if [[ "$VERSION" == 0.0.* && "$PATCH" =~ ^[0-9]+$ && "$PATCH" -le 21 ]]; then
+          PKG="@cloudcdn/stratos"
+        else
+          PKG="@sebastienrousseau/stratos"
+        fi
+        npm install -g "${PKG}@${VERSION}"
         stratos version
 
     - name: Run the command
