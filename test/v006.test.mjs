@@ -141,7 +141,7 @@ test('make-scoop: emits a valid-looking Scoop JSON manifest', async () => {
     assert.equal(r.code, 0);
     const manifest = JSON.parse(await readFile(join(tmpDist, 'stratos.scoop.json'), 'utf8'));
     assert.equal(manifest.version, '0.0.6');
-    assert.equal(manifest.license, 'MIT');
+    assert.equal(manifest.license, 'Apache-2.0|MIT');
     assert.ok(manifest.architecture['64bit'].url.includes('stratos-win-x64.exe'));
     assert.equal(manifest.architecture['64bit'].bin, 'stratos.exe');
   } finally { await rm(tmpDist, { recursive: true, force: true }); }

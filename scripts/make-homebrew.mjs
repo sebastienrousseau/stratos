@@ -74,6 +74,13 @@ const linuxIntelSha  = await fileSha('stratos-linux-x64',     'REPLACE_WITH_LINU
 
 const baseUrl = `https://github.com/sebastienrousseau/stratos/releases/download/v${version}`;
 
+// The licence comes from package.json; Homebrew spells "A OR B" as any_of.
+const { license } = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'));
+const licenseIds = license.split(' OR ');
+const brewLicense = licenseIds.length > 1
+  ? `any_of: [${licenseIds.map((id) => `"${id}"`).join(', ')}]`
+  : `"${license}"`;
+
 const formula = `# typed: false
 # frozen_string_literal: true
 
@@ -89,8 +96,7 @@ const formula = `# typed: false
 class Stratos < Formula
   desc "Official command-line client for CloudCDN"
   homepage "https://github.com/sebastienrousseau/stratos"
-  version "${version}"
-  license "MIT"
+  license ${brewLicense}
 
   on_macos do
     on_arm do
@@ -115,13 +121,9 @@ class Stratos < Formula
   end
 
   def install
-    binary_name = case [OS.kernel_name, Hardware::CPU.arch].join("-")
-                  when "Darwin-arm64" then "stratos-darwin-arm64"
-                  when "Darwin-x86_64" then "stratos-darwin-x64"
-                  when "Linux-arm64" then "stratos-linux-arm64"
-                  when "Linux-x86_64" then "stratos-linux-x64"
-                  end
-    bin.install binary_name => "stratos"
+    os = OS.mac? ? "darwin" : "linux"
+    arch = Hardware::CPU.arm? ? "arm64" : "x64"
+    bin.install "stratos-#{os}-#{arch}" => "stratos"
   end
 
   test do
