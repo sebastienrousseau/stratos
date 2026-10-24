@@ -10,7 +10,13 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
-## [0.0.23] — Unreleased
+## [0.0.24] — Unreleased
+
+### Fixed
+
+- **Rerunning the tap and bucket updates.** In the 0.0.23 release, `tap-bump` and `scoop-bump` pushed their `stratos-v0.0.23` branch but could not open the pull request, and a rerun could not push the rebuilt commit onto that branch. Both jobs now replace a leftover branch that has no open pull request.
+
+## [0.0.23] — 2026-10-24
 
 ### Fixed
 
