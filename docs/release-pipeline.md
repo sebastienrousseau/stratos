@@ -45,8 +45,8 @@ core release green.
 
 | Secret | Used by | Effect when unset |
 |---|---|---|
-| `HOMEBREW_TAP_TOKEN` | `tap-bump` | Skips the Homebrew tap push. Users can still `brew install` from the previously-bumped tag. |
-| `SCOOP_BUCKET_TOKEN` | `scoop-bump` | Skips the Scoop bucket push. Users can still `scoop install` against the previously-bumped version. |
+| `HOMEBREW_TAP_TOKEN` | `tap-bump` | Skips the Homebrew tap pull request. Users can still `brew install` from the previously-bumped tag. |
+| `SCOOP_BUCKET_TOKEN` | `scoop-bump` | Skips the Scoop bucket pull request. Users can still `scoop install` against the previously-bumped version. |
 | `WINGET_PAT` | `winget-submit` | Skips the winget-pkgs PR. Users can still `winget install` against the previously-merged version. |
 | `CDN_UPLOAD_URL` + `CDN_UPLOAD_TOKEN` | `cdn-sync` | Skips the CDN sync. The README's `curl install.sh \| bash` one-liner serves whatever the CDN was last seeded with — see [CDN sync](#cdn-sync). |
 
@@ -59,7 +59,10 @@ core release green.
    Fine-grained tokens → Generate new token
 2. Resource owner: `sebastienrousseau`
 3. Repository access: Only select repositories → `homebrew-tap`
-4. Repository permissions: Contents → Read and write
+4. Repository permissions: Contents → Read and write, and Pull requests →
+   Read and write (the tap's `main` takes changes only through pull
+   requests, so `tap-bump` pushes a `stratos-v<version>` branch and opens
+   one; merge it once the tap's `validate` check passes)
 5. Copy the token, add as `HOMEBREW_TAP_TOKEN` repo secret on `stratos`
 
 **`SCOOP_BUCKET_TOKEN`** — identical procedure, scoped to
