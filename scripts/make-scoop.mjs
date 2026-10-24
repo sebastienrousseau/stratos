@@ -58,12 +58,15 @@ async function fileSha(filename) {
 
 const winx64Sha = await fileSha('stratos-win-x64.exe');
 
+// The licence comes from package.json; Scoop writes "A OR B" as "A|B".
+const { license } = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'));
+
 const manifest = {
   $schema: 'https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json',
   version,
   description: 'Official command-line client for CloudCDN — full control plane in a single zero-dep Node ≥ 20 ES module.',
   homepage: 'https://github.com/sebastienrousseau/stratos',
-  license: 'MIT',
+  license: license.split(' OR ').join('|'),
   notes: [
     'Single-binary install — no Node required.',
     'Run `stratos doctor` to validate your environment + credentials.',

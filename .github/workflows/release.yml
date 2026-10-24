@@ -468,8 +468,9 @@ jobs:
 
   # ───────────────────────────────────────────────────────────────────────────
   # Auto-bump the Homebrew tap (sebastienrousseau/homebrew-tap) with the
-  # real-SHA stratos.rb patched by the `manifests` job. Requires a PAT with
-  # `contents: write` on the tap repo, stored as `HOMEBREW_TAP_TOKEN`. Without
+  # real-SHA stratos.rb patched by the `manifests` job, through a pull
+  # request. Requires a PAT with `contents: write` and `pull-requests: write`
+  # on the tap repo, stored as `HOMEBREW_TAP_TOKEN`. Without
   # the secret the step is a no-op so this workflow stays green for forks /
   # first-run before secrets are configured.
   # ───────────────────────────────────────────────────────────────────────────
@@ -510,13 +511,16 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Push to sebastienrousseau/homebrew-tap
+      # The tap's main branch takes changes only through pull requests, so
+      # the bump goes on its own branch and opens one; the tap's validate
+      # workflow then runs brew style and brew audit on it.
+      - name: Open a pull request on sebastienrousseau/homebrew-tap
         if: steps.gate.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          set -e
+          set -euo pipefail
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name  "github-actions[bot]"
           git clone "https://x-access-token:${GH_TOKEN}@github.com/sebastienrousseau/homebrew-tap.git" tap
@@ -527,10 +531,19 @@ jobs:
             echo "no changes — tap is already at v${VERSION}"
             exit 0
           fi
+          branch="stratos-v${VERSION}"
+          if gh pr list --head "$branch" --state open --json number --jq 'length > 0' | grep -q true; then
+            echo "a pull request for stratos ${VERSION} is already open"
+            exit 0
+          fi
+          git switch -c "$branch"
           git commit \
-            -m "feat(stratos): bump to v${VERSION}" \
+            -m "stratos ${VERSION}" \
             -m "Auto-bumped by the upstream release workflow. brew upgrade stratos"
-          git push
+          git push --set-upstream origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "stratos ${VERSION}" \
+            --body "Updates Formula/stratos.rb to the stratos v${VERSION} release (https://github.com/sebastienrousseau/stratos/releases/tag/v${VERSION})."
 
   # ───────────────────────────────────────────────────────────────────────────
   # Auto-bump the Scoop bucket (sebastienrousseau/scoop-bucket) with the
@@ -573,13 +586,14 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Push to sebastienrousseau/scoop-bucket
+      # The bucket's main branch takes changes only through pull requests.
+      - name: Open a pull request on sebastienrousseau/scoop-bucket
         if: steps.gate.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          set -e
+          set -euo pipefail
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name  "github-actions[bot]"
           git clone "https://x-access-token:${GH_TOKEN}@github.com/sebastienrousseau/scoop-bucket.git" bucket
@@ -591,10 +605,19 @@ jobs:
             echo "no changes — bucket is already at v${VERSION}"
             exit 0
           fi
+          branch="stratos-v${VERSION}"
+          if gh pr list --head "$branch" --state open --json number --jq 'length > 0' | grep -q true; then
+            echo "a pull request for stratos ${VERSION} is already open"
+            exit 0
+          fi
+          git switch -c "$branch"
           git commit \
-            -m "feat(stratos): bump to v${VERSION}" \
+            -m "stratos ${VERSION}" \
             -m "Auto-bumped by the upstream release workflow. scoop update stratos"
-          git push
+          git push --set-upstream origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "stratos ${VERSION}" \
+            --body "Updates bucket/stratos.json to the stratos v${VERSION} release (https://github.com/sebastienrousseau/stratos/releases/tag/v${VERSION})."
 
   # ───────────────────────────────────────────────────────────────────────────
   # winget submission. Opens a PR against microsoft/winget-pkgs with the
@@ -823,8 +846,8 @@ jobs:
                        python3 -c 'import sys,json;print(json.load(sys.stdin)["formulae"][0]["versions"]["stable"])')"
               if [ "$tap_v" != "${VERSION}" ]; then
                 echo "::warning::Homebrew tap is at v${tap_v}, expected v${VERSION}."
-                echo "::warning::tap-bump likely skipped (HOMEBREW_TAP_TOKEN unset)."
-                echo "Skipping homebrew smoke; the tap will be bumped on the next release with the secret configured."
+                echo "::warning::tap-bump's pull request is not merged yet, or tap-bump skipped (HOMEBREW_TAP_TOKEN unset)."
+                echo "Skipping homebrew smoke until the tap is at v${VERSION}."
                 exit 0
               fi
               brew install sebastienrousseau/tap/stratos

@@ -393,7 +393,7 @@ test('make-homebrew: produces a valid-looking Formula', async () => {
   });
   assert.equal(r.code, 0);
   assert.match(r.stdout, /class Stratos < Formula/);
-  assert.match(r.stdout, /version "0\.0\.5"/);
+  assert.match(r.stdout, /releases\/download\/v0\.0\.5\//);
   assert.match(r.stdout, /stratos-darwin-arm64/);
   assert.match(r.stdout, /stratos-linux-x64/);
   assert.match(r.stdout, /REPLACE_WITH_DARWIN_ARM64_SHA/);  // template placeholder

@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIT>
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIT -->
 
 <p align="center">
   <img src="https://cloudcdn.pro/stratos/v1/logos/stratos.svg" alt="Stratos logo" width="128" />
@@ -16,7 +16,7 @@
   <a href="https://github.com/sebastienrousseau/stratos/actions"><img src="https://img.shields.io/github/actions/workflow/status/sebastienrousseau/stratos/ci.yml?style=for-the-badge&logo=github" alt="Build" /></a>
   <a href="https://github.com/sebastienrousseau/stratos/releases"><img src="https://img.shields.io/github/v/release/sebastienrousseau/stratos?style=for-the-badge&color=fc8d62" alt="Release" /></a>
   <a href="https://www.npmjs.com/package/@sebastienrousseau/stratos"><img src="https://img.shields.io/npm/v/@sebastienrousseau%2Fstratos.svg?style=for-the-badge&color=cb3837&logo=npm" alt="npm" /></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge" alt="MIT" /></a>
+  <a href="#license"><img src="https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg?style=for-the-badge" alt="Apache-2.0 OR MIT" /></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%E2%89%A520-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 20+" /></a>
   <a href="#tests--coverage"><img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=for-the-badge" alt="Coverage 100%" /></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/sebastienrousseau/stratos"><img src="https://img.shields.io/ossf-scorecard/github.com/sebastienrousseau/stratos?style=for-the-badge&label=OpenSSF%20Scorecard&logo=openssf" alt="OpenSSF Scorecard" /></a>
@@ -760,7 +760,7 @@ Contributions welcome.
 
 ## License
 
-Licensed under the [MIT License](LICENSE).
+Licensed under either of the [Apache License, Version 2.0](LICENSE-APACHE) or the [MIT license](LICENSE-MIT), at your option.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 

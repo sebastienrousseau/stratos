@@ -62,6 +62,8 @@ async function fileSha(filename) {
 }
 
 const installerSha = await fileSha('stratos-win-x64.exe');
+// winget's License field is free text, so the SPDX expression goes in as is.
+const { license } = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'));
 
 const installer = `# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 # SPDX-License-Identifier: MIT
@@ -96,7 +98,7 @@ PublisherSupportUrl: https://github.com/sebastienrousseau/stratos/issues
 Author: Sebastien Rousseau
 PackageName: Stratos
 PackageUrl: https://github.com/sebastienrousseau/stratos
-License: MIT
+License: ${license}
 LicenseUrl: https://github.com/sebastienrousseau/stratos/blob/main/LICENSE
 ShortDescription: Official command-line client for CloudCDN.
 Description: |-
