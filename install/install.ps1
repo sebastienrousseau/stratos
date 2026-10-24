@@ -18,7 +18,7 @@
 $ErrorActionPreference = 'Stop'
 
 # --- Configuration ---
-$Version = '0.0.22'
+$Version = '0.0.23'
 # Default to the GitHub release asset — canonical, signed, immutable
 # per-tag. CLOUDCDN_URL lets power users override with their own CDN.
 $Source = if ($env:CLOUDCDN_URL) {
@@ -29,7 +29,7 @@ $Source = if ($env:CLOUDCDN_URL) {
 # Expected SHA-256 of stratos.mjs as delivered. Matches the source file
 # in git verbatim — Invoke-WebRequest -OutFile writes the response body
 # byte-for-byte. Bumped on each release.
-$ExpectedSha = 'adb4738a1dd4ee3597a9ddd2d432b77e7dd749986ad4907c723f59cd810d5eaf'
+$ExpectedSha = '8b2ddf2376ddaafe33da94e621b316ac3285d0aad98aeab6a5dd8ad406c90778'
 
 function Log-Info    ($m) { Write-Host "info: $m"    -ForegroundColor Blue }
 function Log-Success ($m) { Write-Host "success: $m" -ForegroundColor Green }

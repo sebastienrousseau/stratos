@@ -5,7 +5,7 @@
 #
 # Usage:
 #
-#   - uses: sebastienrousseau/stratos/actions/stratos@v0.0.22
+#   - uses: sebastienrousseau/stratos/actions/stratos@v0.0.23
 #     with:
 #       command: purge --tag build-${{ github.sha }}
 #     env:
@@ -39,7 +39,7 @@ inputs:
   version:
     description: 'Stratos version to install. Defaults to the version pinned in the action.yml.'
     required: false
-    default: '0.0.22'
+    default: '0.0.23'
   output:
     description: 'Output format hint forwarded as --output. One of json|yaml|csv|table.'
     required: false

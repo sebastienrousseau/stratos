@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 > the project has built genuine community traction. Even substantial
 > feature work is a patch-level bump at this stage.
 
+## [0.0.23] — Unreleased
+
+### Fixed
+
+- **Package licences.** The Homebrew formula, Scoop manifest and winget manifest declared `MIT`; they now declare the project's licence, `Apache-2.0 OR MIT`, read from `package.json` (`license any_of: ["Apache-2.0", "MIT"]` for Homebrew, `Apache-2.0|MIT` for Scoop). The README badge and licence section said MIT as well, and now name both licences.
+- **Homebrew formula style.** The formula's install step picked the binary with a `case` expression that failed `brew style` (Style/HashLikeCase, Layout/EndAlignment) in the tap's validation. It now builds the binary name from `OS.mac?` and `Hardware::CPU.arm?`.
+- **Tap and bucket updates.** `sebastienrousseau/homebrew-tap` and `sebastienrousseau/scoop-bucket` now accept changes only through pull requests, so the 0.0.22 `tap-bump` and `scoop-bump` jobs failed to push. They now push a `stratos-v<version>` branch and open a pull request. `HOMEBREW_TAP_TOKEN` and `SCOOP_BUCKET_TOKEN` need Pull requests read and write in addition to Contents.
+
 ## [0.0.22] — 2026-10-22
 
 ### Changed — published as `@sebastienrousseau/stratos`
