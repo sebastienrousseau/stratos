@@ -71,7 +71,8 @@ test('v0.0.23 fix #2: formula takes its version from the release URL', () => {
 });
 
 test('v0.0.23 fix #3: tap-bump and scoop-bump open pull requests instead of pushing to main', async () => {
-  const yaml = await readFile(join(REPO, '.github', 'workflows', 'release.yml'), 'utf8');
+  // Windows checkouts may use CRLF; the job regex anchors on `\n`.
+  const yaml = (await readFile(join(REPO, '.github', 'workflows', 'release.yml'), 'utf8')).replace(/\r\n/g, '\n');
   for (const job of ['tap-bump', 'scoop-bump']) {
     const body = yaml.match(new RegExp(`^  ${job}:\\n([\\s\\S]*?)(?=^  [a-z-]+:$)`, 'm'));
     assert.ok(body, `${job} job exists`);
