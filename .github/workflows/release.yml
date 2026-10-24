@@ -540,7 +540,9 @@ jobs:
           git commit \
             -m "stratos ${VERSION}" \
             -m "Auto-bumped by the upstream release workflow. brew upgrade stratos"
-          git push --set-upstream origin "$branch"
+          # A branch with no open PR is left over from a failed attempt and
+          # is the bot's own, so the rebuilt commit replaces it.
+          git push --force --set-upstream origin "$branch"
           gh pr create --base main --head "$branch" \
             --title "stratos ${VERSION}" \
             --body "Updates Formula/stratos.rb to the stratos v${VERSION} release (https://github.com/sebastienrousseau/stratos/releases/tag/v${VERSION})."
@@ -614,7 +616,9 @@ jobs:
           git commit \
             -m "stratos ${VERSION}" \
             -m "Auto-bumped by the upstream release workflow. scoop update stratos"
-          git push --set-upstream origin "$branch"
+          # A branch with no open PR is left over from a failed attempt and
+          # is the bot's own, so the rebuilt commit replaces it.
+          git push --force --set-upstream origin "$branch"
           gh pr create --base main --head "$branch" \
             --title "stratos ${VERSION}" \
             --body "Updates bucket/stratos.json to the stratos v${VERSION} release (https://github.com/sebastienrousseau/stratos/releases/tag/v${VERSION})."

@@ -8,6 +8,8 @@
 //       failed `brew audit --strict` (redundant with the URL)
 //   (3) tap-bump and scoop-bump pushed to protected main branches, which
 //       now take changes only through pull requests
+//   (4) v0.0.23: a run whose PR step failed left its branch behind, so a
+//       rerun could not push the rebuilt commit (non-fast-forward)
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -77,7 +79,7 @@ test('v0.0.23 fix #3: tap-bump and scoop-bump open pull requests instead of push
     const body = yaml.match(new RegExp(`^  ${job}:\\n([\\s\\S]*?)(?=^  [a-z-]+:$)`, 'm'));
     assert.ok(body, `${job} job exists`);
     assert.match(body[1], /git switch -c "\$branch"/);
-    assert.match(body[1], /git push --set-upstream origin "\$branch"/);
+    assert.match(body[1], /git push --force --set-upstream origin "\$branch"/);
     assert.match(body[1], /gh pr create/);
     assert.doesNotMatch(body[1], /^\s+git push\s*$/m);
   }
