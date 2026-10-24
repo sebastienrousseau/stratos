@@ -35,7 +35,9 @@ const v = raw.replace(/^v/, '');
 const text = await readFile(CHANGELOG, 'utf8');
 const lines = text.split('\n');
 
-const start = lines.findIndex((l) => l.match(new RegExp(`^##\\s+\\[${v.replace(/\./g, '\\.')}\\]`)));
+// Compare the bracketed version as a string; a regex built from the
+// argument would let `0.0.2[0-9]` match another section.
+const start = lines.findIndex((l) => /^##\s+\[([^\]]+)\]/.exec(l)?.[1] === v);
 if (start < 0) {
   process.stderr.write(`could not find a "## [${v}]" section in ${CHANGELOG}\n`);
   process.exit(1);
