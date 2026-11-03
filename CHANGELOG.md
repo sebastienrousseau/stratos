@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ### Fixed
 
+- **minimatch and glob advisories in the coverage tooling.** c8's test-exclude resolved minimatch 10.2.5 and glob 13.0.6 (GHSA-g3hv-75wg-m249, GHSA-3g3m-2fjr-6pw4). npm overrides now force `minimatch ^11.0.1` and `glob ^14.0.2`, keyed by name because npm 10 ignores a range-keyed override that breaks the dependant's range; c8 still enforces 100% coverage on them.
 - **Rerunning the tap and bucket updates.** In the 0.0.23 release, `tap-bump` and `scoop-bump` pushed their `stratos-v0.0.23` branch but could not open the pull request, and a rerun could not push the rebuilt commit onto that branch. Both jobs now replace a leftover branch that has no open pull request.
 - **Release-notes version matched as a pattern.** `scripts/extract-release-notes.mjs` built a regular expression from its version argument and escaped only the dots, so `0.0.2[0-9]` printed the 0.0.24 section and `(` crashed the script (code-scanning alerts #1 and #2, found once CodeQL was switched on). It now compares the version in each `## [...]` heading as a string.
 
